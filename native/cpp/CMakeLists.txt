@@ -85,3 +85,8 @@ endif()
 if(SR_DLSS)
     add_subdirectory("SRNativeDLSS")
 endif()
+
+option(SR_STREAMLINE "启用以支持Streamline (Reflex/DLSS-G)" ON)
+if(SR_STREAMLINE AND ON_WINDOWS)
+    add_subdirectory("SRNativeStreamline")
+endif()

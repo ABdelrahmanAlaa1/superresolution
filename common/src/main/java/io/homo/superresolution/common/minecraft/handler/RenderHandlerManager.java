@@ -34,6 +34,7 @@ import io.homo.superresolution.common.minecraft.handler.shadercompat.ShaderCompa
 import io.homo.superresolution.common.mixin.core.accessor.MinecraftAccessor;
 import io.homo.superresolution.api.platform.Platform;
 import io.homo.superresolution.core.RenderSystems;
+import io.homo.superresolution.core.StreamlineManager;
 import io.homo.superresolution.core.graphics.impl.framebuffer.IBindableFrameBuffer;
 import io.homo.superresolution.core.graphics.impl.texture.ITexture;
 import io.homo.superresolution.core.graphics.opengl.GlDebug;
@@ -102,9 +103,23 @@ public class RenderHandlerManager {
 
     public static void onFrameBegin() {
         frameCount++;
+
+        // Streamline: acquire FrameToken + SimulationStart + Reflex sleep
+        StreamlineManager slm = StreamlineManager.getInstance();
+        if (slm != null && slm.isInitialized()) {
+            slm.beginFrame(frameCount);
+        }
+
+        // Shader toggle: tick restore countdown
+        io.homo.superresolution.common.shadercompat.ShaderToggleHook.tick();
     }
 
     public static void onFrameEnd() {
+        // Streamline: PresentEnd marker
+        StreamlineManager slm = StreamlineManager.getInstance();
+        if (slm != null && slm.isInitialized()) {
+            slm.afterPresent();
+        }
     }
 
     public static void onRenderWorldBegin(CallType type) {

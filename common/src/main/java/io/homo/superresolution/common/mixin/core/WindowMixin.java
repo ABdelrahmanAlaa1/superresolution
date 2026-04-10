@@ -28,6 +28,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -107,6 +108,13 @@ public class WindowMixin {
         if (!SuperResolution.isPreInit) return;
 
         RenderHandlerManager.resize();
+
+        // Notify VulkanPresenter of resize for swapchain recreation
+        io.homo.superresolution.core.graphics.vulkan.VulkanPresenter presenter =
+                io.homo.superresolution.core.graphics.vulkan.VulkanPresenter.getInstance();
+        if (presenter != null && presenter.isActive()) {
+            presenter.onResize(framebufferWidth, framebufferHeight);
+        }
     }
 
     @Inject(at = @At("RETURN"), method = "onFramebufferResize")
@@ -116,6 +124,31 @@ public class WindowMixin {
         if (!SuperResolution.isPreInit) return;
 
         RenderHandlerManager.resize();
+    }
+
+    /**
+     * Intercept glfwSwapBuffers call inside Window.updateDisplay().
+     * When VulkanPresenter is active (DLSS-G on), redirect presentation
+     * through the Vulkan swapchain so Streamline can inject generated frames.
+     */
+    @Redirect(
+            method = "updateDisplay",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lorg/lwjgl/glfw/GLFW;glfwSwapBuffers(J)V"
+            ),
+            require = 0 // Don't crash if not found (version compat)
+    )
+    private void super_resolution$redirectSwapBuffers(long window) {
+        io.homo.superresolution.core.graphics.vulkan.VulkanPresenter presenter =
+                io.homo.superresolution.core.graphics.vulkan.VulkanPresenter.getInstance();
+        if (presenter != null && presenter.isActive()) {
+            // Route through Vulkan present path (SL intercepts for DLSS-G)
+            presenter.present();
+        } else {
+            // Normal GL present path
+            org.lwjgl.glfw.GLFW.glfwSwapBuffers(window);
+        }
     }
 
 }
