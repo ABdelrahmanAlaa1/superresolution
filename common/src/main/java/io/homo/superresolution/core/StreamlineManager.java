@@ -18,7 +18,7 @@
 
 package io.homo.superresolution.core;
 
-import io.homo.superresolution.common.StreamlineConfig;
+// StreamlineConfig is in the same package (core)
 import io.homo.superresolution.core.RenderSystems;
 import io.homo.superresolution.core.graphics.vulkan.VkRenderSystem;
 import io.homo.superresolution.core.graphics.vulkan.VulkanDevice;

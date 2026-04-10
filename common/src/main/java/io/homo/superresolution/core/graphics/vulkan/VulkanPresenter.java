@@ -22,19 +22,17 @@ import io.homo.superresolution.common.minecraft.MinecraftWindow;
 import io.homo.superresolution.core.RenderSystems;
 import io.homo.superresolution.core.StreamlineManager;
 import io.homo.superresolution.core.StreamlineNative;
-import org.lwjgl.glfw.GLFWNativeWin32;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+
 import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
-import static org.lwjgl.glfw.GLFW.*;
-import static org.lwjgl.opengl.EXTSemaphore.*;
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
-import static org.lwjgl.vulkan.KHRWin32Surface.*;
 import static org.lwjgl.vulkan.VK10.*;
 
 /**
@@ -132,22 +130,39 @@ public class VulkanPresenter {
             return false;
         }
 
-        // Create Win32 surface from GLFW window
+        // Create Win32 surface from GLFW window (uses reflection so this compiles on Linux)
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            long hwnd = GLFWNativeWin32.glfwGetWin32Window(windowHandle);
+            // GLFWNativeWin32.glfwGetWin32Window(windowHandle)
+            Class<?> glfwWin32 = Class.forName("org.lwjgl.glfw.GLFWNativeWin32");
+            MethodHandle getWin32Window = MethodHandles.lookup().findStatic(
+                    glfwWin32, "glfwGetWin32Window", MethodType.methodType(long.class, long.class));
+            long hwnd = (long) getWin32Window.invoke(windowHandle);
+
+            // KHRWin32Surface.vkCreateWin32SurfaceKHR
+            Class<?> khrWin32 = Class.forName("org.lwjgl.vulkan.KHRWin32Surface");
+            int sType = khrWin32.getField("VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR").getInt(null);
 
             VkWin32SurfaceCreateInfoKHR surfaceInfo = VkWin32SurfaceCreateInfoKHR.calloc(stack)
-                    .sType(VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR)
+                    .sType(sType)
                     .hwnd(hwnd)
-                    .hinstance(org.lwjgl.system.windows.User32.GetModuleHandle((java.nio.ByteBuffer) null));
+                    .hinstance(0L); // NULL = current process module
 
             long[] pSurface = new long[1];
-            VK_CHECK(vkCreateWin32SurfaceKHR(
-                    vkrs.getVulkanInstance(), surfaceInfo, null, pSurface
-            ), "Failed to create Win32 Vulkan surface");
+
+            MethodHandle createSurfaceFn = MethodHandles.lookup().findStatic(
+                    khrWin32, "vkCreateWin32SurfaceKHR",
+                    MethodType.methodType(int.class, VkInstance.class,
+                            VkWin32SurfaceCreateInfoKHR.class,
+                            VkAllocationCallbacks.class, long[].class));
+            int result = (int) createSurfaceFn.invoke(
+                    vkrs.getVulkanInstance(), surfaceInfo, null, pSurface);
+            VK_CHECK(result, "Failed to create Win32 Vulkan surface");
             vkSurface = pSurface[0];
 
             LOGGER.info("VkSurfaceKHR created: 0x{}", Long.toHexString(vkSurface));
+        } catch (Throwable e) {
+            LOGGER.error("Failed to create Win32 surface (not on Windows?)", e);
+            return false;
         }
 
         // Create SL-hooked swapchain via native bridge
