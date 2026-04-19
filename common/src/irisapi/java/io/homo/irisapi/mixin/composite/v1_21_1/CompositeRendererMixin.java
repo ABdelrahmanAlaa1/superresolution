@@ -39,6 +39,19 @@ import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import java.util.ListIterator;
 import java.util.Objects;
 
+/**
+ * CompositeRendererMixin for Oculus 1.8.0 (Forge 1.20.1).
+ *
+ * Oculus 1.8.0 is a port of an older Iris codebase. Its renderAll() uses:
+ *  - An iterator-based for-each loop over passes (NOT an index for-loop)
+ *  - NO GLDebug.pushGroup() / popGroup() calls
+ *  - Program.unbind() once per outer iteration (before instanceof check)
+ *  - FullScreenQuadRenderer.renderQuad() for non-compute passes
+ *  - BlendModeOverride.restore() after quad render
+ *
+ * All injection targets use methods that actually exist in Oculus's renderAll(),
+ * mirroring the approach from before1_21_1.CompositeRendererMixin.
+ */
 @Mixin(CompositeRenderer.class)
 public class CompositeRendererMixin {
     #if MC_VER >= MC_1_20_1 && MC_VER <= MC_1_21_4
@@ -49,8 +62,7 @@ public class CompositeRendererMixin {
     @Unique
     private Object superresolution$getPass(int passIndex) {
         if (passIndex >= 0 && passIndex < this.passes.size()) {
-            Object pass = this.passes.get(passIndex);
-            return pass;
+            return this.passes.get(passIndex);
         }
         return null;
     }
@@ -66,9 +78,8 @@ public class CompositeRendererMixin {
         );
     }
 
-    //===========PassStart============//
-    // Oculus 1.8.0 (Forge) uses an iterator-based for-each loop in renderAll(), not an index for loop.
-    // We inject after Iterator.next() and derive the pass index via ListIterator.previousIndex().
+    // =========== PassStart ===========
+    // Inject right after the outer for-each Iterator.next() assigns the next pass.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
             target = "Ljava/util/Iterator;next()Ljava/lang/Object;",
@@ -84,11 +95,14 @@ public class CompositeRendererMixin {
         superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassStart);
     }
 
-    //===========BeforeRender============//
+    // =========== BeforeRender (compute passes) ===========
+    // Oculus has NO GLDebug.pushGroup calls in renderAll(). Instead we co-inject at
+    // Iterator.next() AFTER ordinal 0 (same point as PassStart) and check passType.
+    // This fires before any compute programs are dispatched for this pass.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
-            target = "Lnet/irisshaders/iris/gl/GLDebug;pushGroup(ILjava/lang/String;)V",
-            ordinal = 1,
+            target = "Ljava/util/Iterator;next()Ljava/lang/Object;",
+            ordinal = 0,
             shift = At.Shift.AFTER
     ), locals = LocalCapture.CAPTURE_FAILEXCEPTION, remap = false)
     private void onBeforeRender(
@@ -96,7 +110,6 @@ public class CompositeRendererMixin {
             RenderTarget main,
             UnmodifiableIterator<?> iter
     ) {
-        //当运行计算着色器时在调用计算着色器前触发BeforeRender
         int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType != IrisCompositePassType.Common) {
@@ -104,6 +117,8 @@ public class CompositeRendererMixin {
         }
     }
 
+    // =========== BeforeRender (non-compute / quad passes) ===========
+    // Fires just before the full-screen quad is drawn.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
             target = "Lnet/irisshaders/iris/pathways/FullScreenQuadRenderer;renderQuad()V",
@@ -114,7 +129,6 @@ public class CompositeRendererMixin {
             RenderTarget main,
             UnmodifiableIterator<?> iter
     ) {
-        //当运行不计算着色器时在绘制全屏三角形前触发BeforeRender
         int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType == IrisCompositePassType.Common) {
@@ -122,7 +136,9 @@ public class CompositeRendererMixin {
         }
     }
 
-    //===========AfterRender============//
+    // =========== AfterRender (compute-only passes) ===========
+    // Program.unbind() is called once per outer iteration in Oculus, BEFORE the
+    // ComputeOnlyPass instanceof check. We distinguish via passType.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
             target = "Lnet/irisshaders/iris/gl/program/Program;unbind()V"
@@ -139,6 +155,8 @@ public class CompositeRendererMixin {
         }
     }
 
+    // =========== AfterRender (non-compute / quad passes) ===========
+    // Fires immediately after the full-screen quad has been drawn.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
             target = "Lnet/irisshaders/iris/pathways/FullScreenQuadRenderer;renderQuad()V",
@@ -156,10 +174,12 @@ public class CompositeRendererMixin {
         }
     }
 
-    //===========PassEnd============//
+    // =========== PassEnd (compute-only passes) ===========
+    // Oculus has NO GLDebug.popGroup() in renderAll(). Instead, Program.unbind() AFTER
+    // is the last shared call before ComputeOnlyPass hits `continue`. We check passType.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
-            target = "Lnet/irisshaders/iris/gl/GLDebug;popGroup()V",
+            target = "Lnet/irisshaders/iris/gl/program/Program;unbind()V",
             shift = At.Shift.AFTER,
             ordinal = 0
     ), locals = LocalCapture.CAPTURE_FAILEXCEPTION, remap = false)
@@ -175,11 +195,14 @@ public class CompositeRendererMixin {
         }
     }
 
+    // =========== PassEnd (non-compute / quad passes) ===========
+    // Oculus has NO GLDebug.popGroup() in renderAll(). BlendModeOverride.restore()
+    // is called only for non-ComputeOnly passes, making it the correct end-of-pass hook.
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
-            target = "Lnet/irisshaders/iris/gl/GLDebug;popGroup()V",
+            target = "Lnet/irisshaders/iris/gl/blending/BlendModeOverride;restore()V",
             shift = At.Shift.AFTER,
-            ordinal = 1
+            ordinal = 0
     ), locals = LocalCapture.CAPTURE_FAILEXCEPTION, remap = false)
     private void onPassEndA(
             CallbackInfo ci,
