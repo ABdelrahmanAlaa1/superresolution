@@ -19,6 +19,7 @@
 package io.homo.irisapi.mixin.composite.v1_21_1;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.UnmodifiableIterator;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import io.homo.irisapi.IrisCompositePassType;
 import io.homo.irisapi.IrisReflectionUtils;
@@ -35,6 +36,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 
+import java.util.ListIterator;
 import java.util.Objects;
 
 @Mixin(CompositeRenderer.class)
@@ -65,17 +67,20 @@ public class CompositeRendererMixin {
     }
 
     //===========PassStart============//
+    // Oculus 1.8.0 (Forge) uses an iterator-based for-each loop in renderAll(), not an index for loop.
+    // We inject after Iterator.next() and derive the pass index via ListIterator.previousIndex().
     @Inject(method = "renderAll", at = @At(
             value = "INVOKE",
-            target = "Lcom/google/common/collect/ImmutableList;get(I)Ljava/lang/Object;",
-            ordinal = 0
+            target = "Ljava/util/Iterator;next()Ljava/lang/Object;",
+            ordinal = 0,
+            shift = At.Shift.AFTER
     ), locals = LocalCapture.CAPTURE_FAILEXCEPTION, remap = false)
     private void onPassStart(
             CallbackInfo ci,
             RenderTarget main,
-            int i,
-            int passesSize
+            UnmodifiableIterator<?> iter
     ) {
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassStart);
     }
 
@@ -89,9 +94,10 @@ public class CompositeRendererMixin {
     private void onBeforeRender(
             CallbackInfo ci,
             RenderTarget main,
-            int i
+            UnmodifiableIterator<?> iter
     ) {
         //当运行计算着色器时在调用计算着色器前触发BeforeRender
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType != IrisCompositePassType.Common) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassDispatchBefore);
@@ -106,9 +112,10 @@ public class CompositeRendererMixin {
     private void onBeforeRenderA(
             CallbackInfo ci,
             RenderTarget main,
-            int i
+            UnmodifiableIterator<?> iter
     ) {
         //当运行不计算着色器时在绘制全屏三角形前触发BeforeRender
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType == IrisCompositePassType.Common) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassDispatchBefore);
@@ -123,8 +130,9 @@ public class CompositeRendererMixin {
     private void onAfterRender(
             CallbackInfo ci,
             RenderTarget main,
-            int i
+            UnmodifiableIterator<?> iter
     ) {
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType == IrisCompositePassType.ComputeOnly) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassDispatchAfter);
@@ -139,8 +147,9 @@ public class CompositeRendererMixin {
     private void onAfterRenderA(
             CallbackInfo ci,
             RenderTarget main,
-            int i
+            UnmodifiableIterator<?> iter
     ) {
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType != IrisCompositePassType.ComputeOnly) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassDispatchAfter);
@@ -157,9 +166,9 @@ public class CompositeRendererMixin {
     private void onPassEnd(
             CallbackInfo ci,
             RenderTarget main,
-            int i,
-            int passesSize
+            UnmodifiableIterator<?> iter
     ) {
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType == IrisCompositePassType.ComputeOnly) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassEnd);
@@ -175,9 +184,9 @@ public class CompositeRendererMixin {
     private void onPassEndA(
             CallbackInfo ci,
             RenderTarget main,
-            int i,
-            int passesSize
+            UnmodifiableIterator<?> iter
     ) {
+        int i = Math.max(((ListIterator<?>) iter).previousIndex(), 0);
         IrisCompositePassType passType = IrisReflectionUtils.getCompositePassType(superresolution$getPass(i));
         if (passType != IrisCompositePassType.ComputeOnly) {
             superresolution$handlePassEvent(i, IrisRenderingPipelineHandler::onCompositePassEnd);
