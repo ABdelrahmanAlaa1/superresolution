@@ -21,6 +21,7 @@ package io.homo.superresolution.core.graphics.opengl;
 import io.homo.superresolution.core.graphics.impl.buffer.BufferDescription;
 import io.homo.superresolution.core.graphics.impl.command.CommandPoolFlags;
 import io.homo.superresolution.core.graphics.impl.command.ICommandBuffer;
+import io.homo.superresolution.core.graphics.impl.command.ICommandDecoder;
 import io.homo.superresolution.core.graphics.impl.device.IDevice;
 import io.homo.superresolution.core.graphics.impl.framebuffer.FramebufferDescription;
 import io.homo.superresolution.core.graphics.impl.pipeline.ComputePipeline;
@@ -30,6 +31,7 @@ import io.homo.superresolution.core.graphics.impl.sampler.SamplerDescription;
 import io.homo.superresolution.core.graphics.impl.shader.IShaderProgram;
 import io.homo.superresolution.core.graphics.impl.shader.ShaderDescription;
 import io.homo.superresolution.core.graphics.impl.texture.*;
+import io.homo.superresolution.core.graphics.impl.validation.ValidatedCommandDecoder;
 import io.homo.superresolution.core.graphics.impl.vertex.VertexBufferDescription;
 import io.homo.superresolution.core.graphics.opengl.buffer.GlBuffer;
 import io.homo.superresolution.core.graphics.opengl.command.GlCommandBuffer;
@@ -51,10 +53,12 @@ import java.util.EnumSet;
 public class GlDevice implements IDevice {
     private final GlCommandDecoder commandDecoder;
     private final GlCommandPool defaultCommandPool;
+    private final ValidatedCommandDecoder validatedCommandDecoder;
 
     public GlDevice() {
         this.commandDecoder = new GlCommandDecoder(this);
         this.defaultCommandPool = new GlCommandPool(this, java.util.EnumSet.of(CommandPoolFlags.Reset));
+        this.validatedCommandDecoder = new ValidatedCommandDecoder(this.commandDecoder);
     }
 
     @Override
@@ -183,8 +187,8 @@ public class GlDevice implements IDevice {
     }
 
     @Override
-    public GlCommandDecoder commandDecoder() {
-        return commandDecoder;
+    public ICommandDecoder commandDecoder() {
+        return validatedCommandDecoder;
     }
 
     @Override

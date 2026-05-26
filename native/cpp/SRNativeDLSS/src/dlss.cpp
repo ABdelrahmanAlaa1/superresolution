@@ -53,9 +53,9 @@ extern "C" {
             std::mbstowcs(wideMessage.data(), message, len);
 
             SRMessageType msgType = SR_MESSAGE_TYPE_INFO;
-            if (loggingLevel <= NVSDK_NGX_LOGGING_LEVEL_ON) {
-                msgType = SR_MESSAGE_TYPE_ERROR;
-            }
+            //if (loggingLevel <= NVSDK_NGX_LOGGING_LEVEL_ON) {
+            //    msgType = SR_MESSAGE_TYPE_ERROR;
+            //}
 
             // NGX传进来的日志末尾有换行符，很不美观（划掉）
             size_t msgLen = std::wcslen(wideMessage.c_str());
@@ -79,7 +79,6 @@ extern "C" {
                 size_t len = std::strlen(param->value.stringValue) + 1;
                 featureDllPath.resize(len);
                 std::mbstowcs(featureDllPath.data(), param->value.stringValue, len);
-
                 pathArray[0] = featureDllPath.c_str();
                 pathListInfo.Path = pathArray;
                 pathListInfo.Length = 1;
@@ -103,8 +102,8 @@ extern "C" {
                 (VkInstance) (vulkanDevice.instance),
                 (VkPhysicalDevice) (vulkanDevice.physicalDevice),
                 (VkDevice) (vulkanDevice.device),
-                (PFN_vkGetInstanceProcAddr) (vulkanDevice.instanceProcAddr),
-                (PFN_vkGetDeviceProcAddr) (vulkanDevice.deviceProcAddr),
+                reinterpret_cast<PFN_vkGetInstanceProcAddr>(vulkanDevice.instanceProcAddr),
+                reinterpret_cast<PFN_vkGetDeviceProcAddr>(vulkanDevice.deviceProcAddr),
                 &featureInfo,
                 NVSDK_NGX_Version_API);
             if (!NVSDK_NGX_SUCCEED(result)) {
@@ -222,7 +221,7 @@ extern "C" {
                     static_cast<NVSDK_NGX_DLSS_Hint_Render_Preset>(param->value.int32Value));
                 privateData->ngxParams->Set(
                     NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality,
-                    static_cast<NVSDK_NGX_DLSS_Hint_Render_Preset>(param->value.int32Value));
+                    param->value.int32Value);
             }
         }
         auto result = NGX_VULKAN_CREATE_DLSS_EXT1(

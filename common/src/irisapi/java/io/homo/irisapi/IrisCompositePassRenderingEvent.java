@@ -1,6 +1,6 @@
 /*
  * Super Resolution
- * Copyright (c) 2025. 187J3X1-114514
+ * Copyright (c) 2025-2026. 187J3X1-114514
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ import net.neoforged.bus.api.Event;
 import org.jetbrains.annotations.Nullable;
 
 public class IrisCompositePassRenderingEvent extends Event {
-    protected @Nullable CompositeRenderer compositeRenderer;
+    protected @Nullable ICompositeRendererAccessor compositeRenderer;
     protected IrisCompositeRenderingPhase phase;
     protected String passName;
     protected IrisCompositePassType passType;
@@ -34,7 +34,7 @@ public class IrisCompositePassRenderingEvent extends Event {
 
     protected NamedCompositePass compositePass;
 
-    public @Nullable CompositeRenderer getCompositeRenderer() {
+    public @Nullable ICompositeRendererAccessor getCompositeRenderer() {
         return compositeRenderer;
     }
 
@@ -53,7 +53,7 @@ public class IrisCompositePassRenderingEvent extends Event {
 
     public static class PassBegin extends IrisCompositePassRenderingEvent {
         public PassBegin(
-                @Nullable CompositeRenderer compositeRenderer,
+                @Nullable ICompositeRendererAccessor compositeRenderer,
                 IrisCompositeRenderingPhase phase,
                 String passName,
                 IrisCompositePassType passType,
@@ -69,7 +69,7 @@ public class IrisCompositePassRenderingEvent extends Event {
 
     public static class BeforePassRender extends IrisCompositePassRenderingEvent {
         public BeforePassRender(
-                @Nullable CompositeRenderer compositeRenderer,
+                @Nullable ICompositeRendererAccessor compositeRenderer,
                 IrisCompositeRenderingPhase phase,
                 String passName,
                 IrisCompositePassType passType,
@@ -85,7 +85,7 @@ public class IrisCompositePassRenderingEvent extends Event {
 
     public static class AfterPassRender extends IrisCompositePassRenderingEvent {
         public AfterPassRender(
-                @Nullable CompositeRenderer compositeRenderer,
+                @Nullable ICompositeRendererAccessor compositeRenderer,
                 IrisCompositeRenderingPhase phase,
                 String passName,
                 IrisCompositePassType passType,
@@ -101,7 +101,7 @@ public class IrisCompositePassRenderingEvent extends Event {
 
     public static class PassEnd extends IrisCompositePassRenderingEvent {
         public PassEnd(
-                @Nullable CompositeRenderer compositeRenderer,
+                @Nullable ICompositeRendererAccessor compositeRenderer,
                 IrisCompositeRenderingPhase phase,
                 String passName,
                 IrisCompositePassType passType,

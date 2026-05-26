@@ -25,14 +25,13 @@ import io.homo.superresolution.core.graphics.impl.shader.ShaderResourcesLayout;
 import io.homo.superresolution.core.graphics.impl.shader.uniform.ShaderResourceDescription;
 import io.homo.superresolution.core.graphics.impl.shader.uniform.ShaderResourceType;
 import io.homo.superresolution.core.graphics.impl.texture.ITexture;
-import io.homo.superresolution.core.graphics.impl.texture.ITextureView;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import java.nio.LongBuffer;
 import java.util.Map;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.KHRPushDescriptor.VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
 import static org.lwjgl.vulkan.VK10.*;
@@ -40,11 +39,20 @@ import static org.lwjgl.vulkan.VK10.*;
 public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
     private final VulkanDevice device;
     private long descriptorSetLayout = VK_NULL_HANDLE;
+    private long defaultSampler = VK_NULL_HANDLE;
 
     public VulkanPipelineDescriptorSet(VulkanDevice device, IShaderProgram shader) {
         super(shader);
         this.device = device;
         createDescriptorSetLayout();
+    }
+
+    private static int toVkDescriptorType(ShaderResourceType type) {
+        return switch (type) {
+            case UniformBuffer -> VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            case SamplerTexture -> VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            case StorageTexture -> VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        };
     }
 
     private void createDescriptorSetLayout() {
@@ -78,12 +86,10 @@ public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
         }
     }
 
-    @Override
-    protected void updateImpl() {
-    }
-
     void pushDescriptors(VkCommandBuffer cmd, int bindPoint, long pipelineLayout) {
-        if (bindings.isEmpty()) return;
+        if (bindings.isEmpty()) {
+            return;
+        }
 
         try (MemoryStack stack = stackPush()) {
             VkWriteDescriptorSet.Buffer writes = VkWriteDescriptorSet.calloc(bindings.size(), stack);
@@ -102,8 +108,8 @@ public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
                         IBuffer buffer = (IBuffer) binding.resource();
                         VkDescriptorBufferInfo.Buffer bufferInfo = VkDescriptorBufferInfo.calloc(1, stack)
                                 .buffer(buffer.handle())
-                                .offset(0)
-                                .range(buffer.getSize());
+                                .offset(binding.offset())
+                                .range(binding.range());
                         write.descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
                                 .pBufferInfo(bufferInfo);
                     }
@@ -149,6 +155,10 @@ public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
     public void apply() {
     }
 
+    @Override
+    protected void updateImpl() {
+    }
+
     private long resolveImageView(ITexture textureOrView) {
         if (textureOrView instanceof VulkanTextureView vtv) {
             return vtv.handle();
@@ -175,8 +185,6 @@ public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
         throw new IllegalArgumentException("Cannot resolve storage image view from: " + textureOrView.getClass());
     }
 
-    private long defaultSampler = VK_NULL_HANDLE;
-
     private long getOrCreateDefaultSampler() {
         if (defaultSampler == VK_NULL_HANDLE) {
             try (MemoryStack stack = stackPush()) {
@@ -198,14 +206,6 @@ public class VulkanPipelineDescriptorSet extends PipelineDescriptorSet {
             }
         }
         return defaultSampler;
-    }
-
-    private static int toVkDescriptorType(ShaderResourceType type) {
-        return switch (type) {
-            case UniformBuffer -> VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            case SamplerTexture -> VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            case StorageTexture -> VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        };
     }
 
     public long getDescriptorSetLayout() {

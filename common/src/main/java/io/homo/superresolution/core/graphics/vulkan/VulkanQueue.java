@@ -18,12 +18,11 @@
 
 package io.homo.superresolution.core.graphics.vulkan;
 
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkQueue;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkQueueWaitIdle;
 
@@ -54,7 +53,7 @@ public class VulkanQueue {
         return queue;
     }
 
-    public void waitIdle(){
+    public void waitIdle() {
         VK_CHECK(vkQueueWaitIdle(queue), "Failed to wait for queue idle");
     }
 }

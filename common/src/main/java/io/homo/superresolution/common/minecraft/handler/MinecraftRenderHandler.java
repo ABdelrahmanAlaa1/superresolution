@@ -30,6 +30,7 @@ import io.homo.superresolution.api.platform.Platform;
 import io.homo.superresolution.common.perf.PerformanceTracker;
 import io.homo.superresolution.core.RenderSystems;
 import io.homo.superresolution.core.graphics.impl.CopyOperation;
+import io.homo.superresolution.core.graphics.impl.command.ICommandBuffer;
 import io.homo.superresolution.core.graphics.impl.framebuffer.IBindableFrameBuffer;
 import io.homo.superresolution.core.graphics.impl.texture.*;
 import io.homo.superresolution.core.graphics.opengl.Gl;
@@ -64,6 +65,7 @@ public class MinecraftRenderHandler implements IMinecraftRenderHandler {
     private final Map<MinecraftRenderTargetType, IBindableFrameBuffer> renderTargets = new HashMap<>();
     public ITexture colorTexture;
     public ITexture depthTexture;
+    public ITexture emptyMotionVectorTexture;
     private IBindableFrameBuffer renderTarget;
     private boolean initialized;
 
@@ -106,6 +108,20 @@ public class MinecraftRenderHandler implements IMinecraftRenderHandler {
                         .label("SRMainDepthTexture")
                         .mipmapsDisabled()
                         .format(TextureFormat.R32F)
+                        .usages(TextureUsages.create().storage().sampler())
+                        .type(TextureType.Texture2D)
+                        .wrapMode(TextureWrapMode.ClampToEdge)
+                        .size(
+                                RenderHandlerManager.getRenderWidth(),
+                                RenderHandlerManager.getRenderHeight()
+                        )
+                        .build()
+        );
+        emptyMotionVectorTexture = RenderSystems.current().device().createTexture(
+                TextureDescription.create()
+                        .label("SRMainEmptyMotionVectorTexture")
+                        .mipmapsDisabled()
+                        .format(TextureFormat.RG16F)
                         .usages(TextureUsages.create().storage().sampler())
                         .type(TextureType.Texture2D)
                         .wrapMode(TextureWrapMode.ClampToEdge)
@@ -255,7 +271,7 @@ public class MinecraftRenderHandler implements IMinecraftRenderHandler {
                         dispatchResource = AlgorithmManager.getDispatchResource(
                                 colorTexture,
                                 depthTexture,
-                                null,
+                                emptyMotionVectorTexture,
                                 new Vector2f(0),
                                 0
                         );
@@ -403,6 +419,11 @@ public class MinecraftRenderHandler implements IMinecraftRenderHandler {
             depthTexture = RenderSystems.current().device().createTexture(depthDesc);
         }
 
+        if (emptyMotionVectorTexture.getWidth() != renderWidth || emptyMotionVectorTexture.getHeight() != renderHeight) {
+            TextureDescription depthDesc = emptyMotionVectorTexture.getTextureDescription().withSize(renderWidth, renderHeight);
+            emptyMotionVectorTexture.destroy();
+            emptyMotionVectorTexture = RenderSystems.current().device().createTexture(depthDesc);
+        }
     }
 
     public void onRenderHandBegin() {

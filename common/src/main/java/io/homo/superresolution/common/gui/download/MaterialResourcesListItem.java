@@ -36,6 +36,7 @@ import io.homo.superresolution.core.gui.widgets.button.MaterialButtonVariant;
 import io.homo.superresolution.core.gui.widgets.label.MaterialLabel;
 import io.homo.superresolution.core.gui.widgets.progress.MaterialLinearProgressIndicator;
 import io.homo.superresolution.core.utils.Color;
+import io.homo.superresolution.common.SuperResolution;
 import io.homo.superresolution.core.utils.DirectoryEnsurer;
 import io.homo.superresolution.thirdparty.yoga.appliedenergistics.yoga.*;
 import org.joml.Vector2f;
@@ -75,7 +76,7 @@ public class MaterialResourcesListItem extends MaterialContainerWidget<MaterialR
         this.resource = resource;
         this.targetDirectory = targetDirectory;
         getLayoutNode().setDebugName("MaterialDownloadListItem");
-        
+
         iconWidget = new IconWidget();
         iconWidget.setElementSize(24, 24);
         iconContainer.addChild(iconWidget);
@@ -129,7 +130,7 @@ public class MaterialResourcesListItem extends MaterialContainerWidget<MaterialR
             selectFileButton.onClick(event -> onSelectFileButtonClicked());
             rightButtonContainer.addChild(selectFileButton);
         }
-        
+
         addChild(contentContainer);
         if (!enableDownload) {
             addChild(rightButtonContainer);
@@ -208,17 +209,17 @@ public class MaterialResourcesListItem extends MaterialContainerWidget<MaterialR
         try {
             Path source = Path.of(sourcePath);
             Path target = targetDirectory.getPath().resolve(resource.getName());
-            
+
             if (target.getParent() != null) {
                 Files.createDirectories(target.getParent());
             }
-            
+
             Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-            
+
             this.selectedPath = sourcePath;
             this.state = DownloadState.SELECTED;
         } catch (Exception e) {
-            e.printStackTrace();
+            SuperResolution.LOGGER.trace("选择资源文件失败", e);
             this.state = DownloadState.ERROR;
             this.errorCode = ExtraResource.ErrorCode.PermissionDenied;
         }
@@ -244,10 +245,14 @@ public class MaterialResourcesListItem extends MaterialContainerWidget<MaterialR
             case ERROR:
                 if (errorCode != null) {
                     return switch (errorCode) {
-                        case NetworkError -> Text.translatable("superresolution.screen.download.error.network").getString();
-                        case FileNotFound -> Text.translatable("superresolution.screen.download.error.file_not_found").getString();
-                        case PermissionDenied -> Text.translatable("superresolution.screen.download.error.permission_denied").getString();
-                        case Cancelled -> Text.translatable("superresolution.screen.download.state.cancelled").getString();
+                        case NetworkError ->
+                                Text.translatable("superresolution.screen.download.error.network").getString();
+                        case FileNotFound ->
+                                Text.translatable("superresolution.screen.download.error.file_not_found").getString();
+                        case PermissionDenied ->
+                                Text.translatable("superresolution.screen.download.error.permission_denied").getString();
+                        case Cancelled ->
+                                Text.translatable("superresolution.screen.download.state.cancelled").getString();
                         default -> Text.translatable("superresolution.screen.download.error.unknown").getString();
                     };
                 }

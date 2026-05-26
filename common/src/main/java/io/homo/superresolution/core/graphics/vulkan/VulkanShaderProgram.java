@@ -18,12 +18,12 @@
 
 package io.homo.superresolution.core.graphics.vulkan;
 
+import io.homo.superresolution.core.SuperResolutionNative;
 import io.homo.superresolution.core.graphics.glslang.GlslangCompileShaderResult;
 import io.homo.superresolution.core.graphics.glslang.GlslangShaderCompiler;
 import io.homo.superresolution.core.graphics.glslang.enums.*;
 import io.homo.superresolution.core.graphics.impl.shader.*;
 import io.homo.superresolution.core.graphics.shader.ShaderCompiler;
-import io.homo.superresolution.core.SuperResolutionNative;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
 import org.slf4j.Logger;
@@ -34,7 +34,7 @@ import java.nio.LongBuffer;
 import java.util.EnumMap;
 import java.util.Map;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.VK10.*;
 
@@ -53,7 +53,9 @@ public class VulkanShaderProgram implements IShaderProgram {
 
     @Override
     public void compile() {
-        if (compiled) return;
+        if (compiled) {
+            return;
+        }
 
         for (Map.Entry<ShaderType, ShaderSource> entry : description.sourceMap().entrySet()) {
             ShaderType type = entry.getKey();
@@ -63,6 +65,27 @@ public class VulkanShaderProgram implements IShaderProgram {
             shaderModules.put(type, module);
         }
         compiled = true;
+    }
+
+    @Override
+    public boolean isCompiled() {
+        return compiled;
+    }
+
+    @Override
+    public void destroy() {
+        for (Map.Entry<ShaderType, Long> entry : shaderModules.entrySet()) {
+            if (entry.getValue() != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device.getVkDevice(), entry.getValue(), null);
+            }
+        }
+        shaderModules.clear();
+        compiled = false;
+    }
+
+    @Override
+    public ShaderDescription getDescription() {
+        return description;
     }
 
     private long compileShaderModule(ShaderType type, ShaderSource source) {
@@ -138,27 +161,6 @@ public class VulkanShaderProgram implements IShaderProgram {
                     "Failed to create shader module");
             return pModule.get(0);
         }
-    }
-
-    @Override
-    public boolean isCompiled() {
-        return compiled;
-    }
-
-    @Override
-    public void destroy() {
-        for (Map.Entry<ShaderType, Long> entry : shaderModules.entrySet()) {
-            if (entry.getValue() != VK_NULL_HANDLE) {
-                vkDestroyShaderModule(device.getVkDevice(), entry.getValue(), null);
-            }
-        }
-        shaderModules.clear();
-        compiled = false;
-    }
-
-    @Override
-    public ShaderDescription getDescription() {
-        return description;
     }
 
     @Override

@@ -21,6 +21,7 @@ package io.homo.superresolution.thirdparty.fsr2.common;
 import io.homo.superresolution.core.RenderSystems;
 import io.homo.superresolution.core.graphics.impl.buffer.BufferDescription;
 import io.homo.superresolution.core.graphics.impl.buffer.BufferUsage;
+import io.homo.superresolution.core.graphics.impl.buffer.BufferUsages;
 import io.homo.superresolution.core.graphics.opengl.buffer.GlBuffer;
 import io.homo.superresolution.core.graphics.opengl.texture.GlTexture2D;
 import io.homo.superresolution.thirdparty.fsr2.common.struct.Fsr2CBFSR2;
@@ -35,7 +36,7 @@ import org.slf4j.LoggerFactory;
 import static org.lwjgl.opengl.GL11.*;
 
 public class Fsr2Context {
-    public static final Logger LOGGER = LoggerFactory.getLogger("SuperResolution-FSR2");
+    public static final Logger LOGGER = LoggerFactory.getLogger("SuperResolution/FSR2");
 
     /// ///////////////////
     public Fsr2Pipeline accumulatePipeline;
@@ -111,24 +112,21 @@ public class Fsr2Context {
         this.fsr2RcasConstantsUBO = RenderSystems.current().device().createBuffer(
                 BufferDescription.create()
                         .size(this.fsr2RcasConstants.size())
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .build()
         );
         this.fsr2SpdConstantsUBO = RenderSystems.current().device().createBuffer(
                 BufferDescription.create()
                         .size(this.fsr2SpdConstants.size())
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .build()
         );
         this.fsr2ConstantsUBO = RenderSystems.current().device().createBuffer(
                 BufferDescription.create()
                         .size(this.fsr2Constants.size())
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .build()
         );
-        this.fsr2SpdConstantsUBO.setBufferData(this.fsr2SpdConstants);
-        this.fsr2ConstantsUBO.setBufferData(this.fsr2Constants);
-        this.fsr2RcasConstantsUBO.setBufferData(this.fsr2RcasConstants);
 
         resources = new Fsr2PipelineResources();
         resources.init(
@@ -222,9 +220,6 @@ public class Fsr2Context {
         fsr2Constants.update(this, dispatchDescription, dimensions);
         fsr2SpdConstants.update(this, dispatchDescription, dimensions);
         fsr2RcasConstants.update(this, dispatchDescription, dimensions);
-        fsr2ConstantsUBO.upload();
-        fsr2SpdConstantsUBO.upload();
-        fsr2RcasConstantsUBO.upload();
 
         Fsr2PipelineDispatchResource pipelineDispatchResource = new Fsr2PipelineDispatchResource(
                 resources,
@@ -234,6 +229,9 @@ public class Fsr2Context {
                 dispatchDescription.commandBuffer
         );
 
+        dispatchDescription.commandBuffer.writeToBuffer(fsr2ConstantsUBO, 0, fsr2Constants);
+        dispatchDescription.commandBuffer.writeToBuffer(fsr2SpdConstantsUBO, 0, fsr2SpdConstants);
+        dispatchDescription.commandBuffer.writeToBuffer(fsr2RcasConstantsUBO, 0, fsr2RcasConstants);
         computeLuminancePyramidPipeline.execute(pipelineDispatchResource);
         reconstructPreviousDepthPipeline.execute(pipelineDispatchResource);
         depthClipPipeline.execute(pipelineDispatchResource);

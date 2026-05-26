@@ -56,7 +56,6 @@ import java.util.List;
 public final class SuperResolution implements Destroyable {
     public static final String MOD_ID = "super_resolution";
     public static final Logger LOGGER = LoggerFactory.getLogger("SuperResolution");
-    public static final Logger LOGGER_CPP = LoggerFactory.getLogger("SuperResolution-CPP");
     public static final List<String> INCOMPATIBLE_MODS = ImmutableList.<String>builder()
             .add("resolutioncontrol-plus-plus")
             .add("resolutioncontrol-plus")
@@ -248,7 +247,7 @@ public final class SuperResolution implements Destroyable {
                 return true;
             } catch (Exception e) {
                 SuperResolution.LOGGER.info("初始化算法 {} 时失败 错误:", algorithmDescription.getDisplayName());
-                e.printStackTrace();
+                LOGGER.trace("初始化算法失败详情", e);
                 if (currentAlgorithm != null) {
                     try { currentAlgorithm.destroy(); } catch (Exception ignored2) { }
                 }
@@ -341,6 +340,16 @@ public final class SuperResolution implements Destroyable {
         pendingResizeDeadlineMs = System.currentTimeMillis() + RESIZE_DEBOUNCE_MS;
     }
 
+    public void forceResize(int width, int height) {
+        cachedWidth = width;
+        cachedHeight = height;
+        pendingResize = false;
+        SuperResolution self = getInstance();
+        if (self != null) {
+            self.applyPendingResize();
+        }
+    }
+
     /** 每帧调用；尺寸稳定 RESIZE_DEBOUNCE_MS 后才真正重建算法。 */
     public static void tickResize() {
         if (!pendingResize) return;
@@ -355,6 +364,8 @@ public final class SuperResolution implements Destroyable {
     private void applyPendingResize() {
         int w = MinecraftWindow.getWindowWidth();
         int h = MinecraftWindow.getWindowHeight();
+        w = Math.max(32,w) ;
+        h = Math.max(32,h);
         if (currentAlgorithm != null && SuperResolutionConfig.isEnableUpscaleOriginal()) {
             SuperResolutionAPI.EVENT_BUS.post(
                     new AlgorithmResizeEvent(
@@ -365,7 +376,10 @@ public final class SuperResolution implements Destroyable {
                             RenderHandlerManager.getRenderHeight()
                     )
             );
-            currentAlgorithm.resize(w, h);
+            currentAlgorithm.resize(
+                    w,
+                    h
+            );
             // 分辨率变了，时序历史无效。
             currentAlgorithm.invalidateHistory();
         }

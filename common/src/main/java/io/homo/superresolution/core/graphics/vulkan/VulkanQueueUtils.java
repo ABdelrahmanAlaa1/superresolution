@@ -16,21 +16,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package io.homo.superresolution.core.graphics.vulkan.utils;
+package io.homo.superresolution.core.graphics.vulkan;
 
-import io.homo.superresolution.core.graphics.vulkan.VulkanDevice;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkQueueFamilyProperties;
+
+import java.nio.IntBuffer;
 
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceQueueFamilyProperties;
 
 public class VulkanQueueUtils {
     public static int findQueueFamilyIndex(MemoryStack stack, int queueType, VkPhysicalDevice physicalDevice) {
-        int queueFamilyCount = stack.mallocInt(1).get(0);
-        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, stack.ints(queueFamilyCount), null);
+        IntBuffer pCount = stack.mallocInt(1);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pCount, null);
+        int queueFamilyCount = pCount.get(0);
         VkQueueFamilyProperties.Buffer queueFamilies = VkQueueFamilyProperties.malloc(queueFamilyCount, stack);
-        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, stack.ints(queueFamilyCount), queueFamilies);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pCount, queueFamilies);
         for (int i = 0; i < queueFamilies.capacity(); i++) {
             if ((queueFamilies.get(i).queueFlags() & queueType) != 0) {
                 return i;

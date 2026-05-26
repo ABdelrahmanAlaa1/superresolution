@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package io.homo.superresolution.core.graphics.vulkan.utils;
+package io.homo.superresolution.core.graphics.vulkan;
 
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.Checks;
@@ -73,12 +73,12 @@ public class VkReflectionHelper {
             Class.forName("org.lwjgl.system.Pointer$Default"),
             "address", long.class
     ));
-    private static final Class<?> GlobalCommands = runReflective(() -> Class.forName("org.lwjgl.vulkan.VK$GlobalCommands"));
     private static final MethodHandle newVKCapabilitiesInstance = runReflective(() -> IMPL_LOOKUP.findConstructor(VKCapabilitiesInstance.class, MethodType.methodType(void.class, FunctionProvider.class, int.class, Set.class, Set.class)));
     private static final MethodHandle getEnabledExtensionSet = runReflective(() -> IMPL_LOOKUP.findStatic(VK.class, "getEnabledExtensionSet", MethodType.methodType(Set.class, int.class, PointerBuffer.class)));
-    private static final MethodHandle getGlobalCommands = runReflective(() -> IMPL_LOOKUP.findStatic(VK.class, "getGlobalCommands", MethodType.methodType(GlobalCommands)));
     // reflection replacement for VK's package-private methods.
+    private static final Class<?> GlobalCommands = runReflective(() -> Class.forName("org.lwjgl.vulkan.VK$GlobalCommands"));
     private static final VarHandle vkGetInstanceProcAddr = runReflective(() -> IMPL_LOOKUP.findVarHandle(GlobalCommands, "vkGetInstanceProcAddr", long.class));
+    private static final MethodHandle getGlobalCommands = runReflective(() -> IMPL_LOOKUP.findStatic(VK.class, "getGlobalCommands", MethodType.methodType(GlobalCommands)));
 
     public static VkInstance createVkInstanceSafely(long handle, VkInstanceCreateInfo ci) {
         try {

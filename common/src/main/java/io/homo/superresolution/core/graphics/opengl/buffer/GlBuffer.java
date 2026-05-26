@@ -20,43 +20,32 @@ package io.homo.superresolution.core.graphics.opengl.buffer;
 
 import io.homo.superresolution.core.graphics.impl.buffer.BufferDescription;
 import io.homo.superresolution.core.graphics.impl.buffer.BufferUsage;
+import io.homo.superresolution.core.graphics.impl.buffer.BufferUsages;
 import io.homo.superresolution.core.graphics.impl.buffer.IBuffer;
-import io.homo.superresolution.core.graphics.impl.buffer.IBufferData;
 import io.homo.superresolution.core.graphics.opengl.Gl;
-import org.lwjgl.opengl.GL41;
-import org.lwjgl.opengl.GL45C;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL30;
+
+import java.nio.ByteBuffer;
 
 import static org.lwjgl.opengl.GL45.*;
 
 public class GlBuffer implements IBuffer {
     private final int glId;
     private final long size;
-    private final BufferUsage usage;
-
-    private IBufferData bufferData;
+    private final BufferUsages usages;
+    private ByteBuffer mappedBuffer;
+    private boolean mapped;
 
     public GlBuffer(BufferDescription description) {
         this.size = description.size();
-        this.usage = description.usage();
+        this.usages = description.usage();
         this.glId = Gl.DSA.createBuffer();
-        if (Gl.isSupportDSA()) {
-            GL45C.glNamedBufferData(this.glId, new int[]{}, getGlUsage());
-        } else {
-            GL41.glBufferData(this.glId, new int[]{}, getGlUsage());
-        }
-    }
-
-    @Override
-    public IBufferData data() {
-        return bufferData;
-    }
-
-    @Override
-    public void upload() {
-        if (bufferData == null) {
-            throw new RuntimeException();
-        }
-        Gl.DSA.bufferData(this.glId, getGlTarget(), bufferData.container(), getGlUsage());
+        int target = getGlTarget(usages.getUsages().get(0));
+        int previous = GL15.glGetInteger(getGlBindingQuery(target));
+        GL15.glBindBuffer(target, glId);
+        GL15.glBufferData(target, this.size, getGlUsage());
+        GL15.glBindBuffer(target, previous);
     }
 
     @Override
@@ -65,13 +54,53 @@ public class GlBuffer implements IBuffer {
     }
 
     @Override
-    public BufferUsage getUsage() {
-        return usage;
+    public BufferUsages getUsages() {
+        return usages;
     }
 
     @Override
-    public void setBufferData(IBufferData bufferData) {
-        this.bufferData = bufferData;
+    public ByteBuffer map(int offsetInBytes, int lengthInBytes, boolean write) {
+        validateRange(offsetInBytes, lengthInBytes);
+        if (mapped) {
+            throw new IllegalStateException("Buffer is already mapped");
+        }
+
+        int target = getGlTarget(usages.getUsages().get(0));
+        int previous = GL15.glGetInteger(getGlBindingQuery(target));
+        GL15.glBindBuffer(target, glId);
+        mappedBuffer = GL30.glMapBufferRange(
+                target,
+                offsetInBytes,
+                lengthInBytes,
+                write ? GL30.GL_MAP_WRITE_BIT : GL30.GL_MAP_READ_BIT
+        );
+        GL15.glBindBuffer(target, previous);
+
+        if (mappedBuffer == null) {
+            throw new RuntimeException("Failed to map buffer");
+        }
+
+        mapped = true;
+        return mappedBuffer;
+    }
+
+    @Override
+    public void unmap() {
+        if (!mapped) {
+            throw new IllegalStateException("Buffer is not mapped");
+        }
+
+        int target = getGlTarget(usages.getUsages().get(0));
+        int previous = GL15.glGetInteger(getGlBindingQuery(target));
+        GL15.glBindBuffer(target, glId);
+        boolean success = GL15.glUnmapBuffer(target);
+        GL15.glBindBuffer(target, previous);
+        mappedBuffer = null;
+        mapped = false;
+
+        if (!success) {
+            throw new RuntimeException("Failed to unmap buffer");
+        }
     }
 
     @Override
@@ -79,26 +108,42 @@ public class GlBuffer implements IBuffer {
         return glId;
     }
 
-    private int getGlTarget() {
+    private int getGlTarget(BufferUsage usage) {
         return switch (usage) {
             case Ubo -> GL_UNIFORM_BUFFER;
-            case CopySrc -> GL_COPY_READ_BUFFER;
-            case CopyDst -> GL_COPY_WRITE_BUFFER;
+            case TransferSrc -> GL_COPY_READ_BUFFER;
+            case TransferDst -> GL_COPY_WRITE_BUFFER;
             default -> GL_ARRAY_BUFFER;
         };
     }
 
     private int getGlUsage() {
-        return switch (usage) {
-            case StaticDraw -> GL_STATIC_DRAW;
-            case DynamicDraw -> GL_DYNAMIC_DRAW;
-            case Ubo -> GL_DYNAMIC_DRAW;
-            default -> GL_STATIC_DRAW;
+        return GL_DYNAMIC_DRAW;
+    }
+
+    private int getGlBindingQuery(int target) {
+        return switch (target) {
+            case GL_UNIFORM_BUFFER -> GL_UNIFORM_BUFFER_BINDING;
+            case GL_COPY_READ_BUFFER -> GL_COPY_READ_BUFFER_BINDING;
+            case GL_COPY_WRITE_BUFFER -> GL_COPY_WRITE_BUFFER_BINDING;
+            default -> GL_ARRAY_BUFFER_BINDING;
         };
+    }
+
+    private void validateRange(int offsetInBytes, int lengthInBytes) {
+        if (offsetInBytes < 0 || lengthInBytes < 0) {
+            throw new IllegalArgumentException("Buffer range cannot be negative");
+        }
+        if ((long) offsetInBytes + lengthInBytes > size) {
+            throw new IllegalArgumentException("Buffer range exceeds buffer size");
+        }
     }
 
     @Override
     public void destroy() {
+        if (mapped) {
+            unmap();
+        }
         Gl.DSA.deleteBuffer(glId);
     }
 }

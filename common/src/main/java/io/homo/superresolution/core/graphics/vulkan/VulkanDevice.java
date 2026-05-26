@@ -39,10 +39,12 @@ import io.homo.superresolution.core.graphics.impl.texture.ITexture;
 import io.homo.superresolution.core.graphics.impl.texture.ITextureView;
 import io.homo.superresolution.core.graphics.impl.texture.TextureDescription;
 import io.homo.superresolution.core.graphics.impl.texture.TextureViewDescription;
+import io.homo.superresolution.core.graphics.impl.validation.ValidatedCommandDecoder;
 import io.homo.superresolution.core.graphics.impl.vertex.IVertexBuffer;
 import io.homo.superresolution.core.graphics.impl.vertex.VertexBufferDescription;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkDevice;
+import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkSubmitInfo;
 import org.slf4j.Logger;
@@ -50,27 +52,32 @@ import org.slf4j.LoggerFactory;
 
 import java.util.EnumSet;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.vulkan.VK10.VK_STRUCTURE_TYPE_SUBMIT_INFO;
 import static org.lwjgl.vulkan.VK10.vkQueueSubmit;
 
 public class VulkanDevice implements IDevice {
     private static final Logger LOGGER = LoggerFactory.getLogger(VulkanDevice.class);
+    private final VkInstance instance;
     private final VkPhysicalDevice physicalDevice;
     private final VkDevice device;
     private final VulkanQueue mainQueue;
-    private final VulkanCommandPool commandManager;
     private final VulkanCommandPool defaultCommandPool;
     private final VulkanCommandDecoder commandDecoder;
+    private final ValidatedCommandDecoder validatedCommandDecoder;
+    private final VulkanMemoryAllocator memoryAllocator;
 
 
-    public VulkanDevice(VkPhysicalDevice physicalDevice, VkDevice device, int graphicsQueueFamilyIndex) {
+    public VulkanDevice(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device, int graphicsQueueFamilyIndex) {
+        this.instance = instance;
         this.physicalDevice = physicalDevice;
         this.device = device;
         this.mainQueue = new VulkanQueue(this, graphicsQueueFamilyIndex);
-        this.commandManager = new VulkanCommandPool(this, EnumSet.of(CommandPoolFlags.Reset));
-        this.defaultCommandPool = commandManager;
+        this.defaultCommandPool= new VulkanCommandPool(this, EnumSet.of(CommandPoolFlags.Reset));
         this.commandDecoder = new VulkanCommandDecoder(this);
+        this.validatedCommandDecoder = new ValidatedCommandDecoder(commandDecoder);
+        this.memoryAllocator = new VulkanMemoryAllocator(this);
+        defaultCommandPool.init();
     }
 
     @Override
@@ -136,12 +143,12 @@ public class VulkanDevice implements IDevice {
         return new VulkanGraphicsPipeline(
                 this,
                 builder.shader(),
-            builder.renderPass(),
+                builder.renderPass(),
                 builder.rasterization(),
                 builder.depthStencil(),
                 builder.colorBlend(),
                 builder.dynamicStates(),
-            builder.primitiveType(),
+                builder.primitiveType(),
                 builder.vertexFormat(),
                 descriptorSet
         );
@@ -170,7 +177,7 @@ public class VulkanDevice implements IDevice {
 
     @Override
     public ICommandDecoder commandDecoder() {
-        return commandDecoder;
+        return validatedCommandDecoder;
     }
 
     @Override
@@ -249,6 +256,7 @@ public class VulkanDevice implements IDevice {
             VK_CHECK(vkQueueSubmit(mainQueue.getQueue(), submitInfo, fence));
             commandBuffer.markSubmitted();
         }
+        reapCompletedTransientResources();
         return fence;
     }
 
@@ -267,25 +275,21 @@ public class VulkanDevice implements IDevice {
             VK_CHECK(vkQueueSubmit(mainQueue.getQueue(), submitInfo, fence));
             commandBuffer.markSubmitted();
         }
+        reapCompletedTransientResources();
     }
 
-    /**
-     * 获取VulkanCommandManager实例
-     *
-     * @return VulkanCommandManager实例
-     */
-    public VulkanCommandPool getCommandManager() {
-        return commandManager;
-    }
-
-    /**
-     * 销毁资源
-     */
     public void destroy() {
-        if (commandManager != null) {
-            commandManager.destroy();
+        if (defaultCommandPool != null) {
+            defaultCommandPool.destroy();
+        }
+        if (memoryAllocator != null) {
+            memoryAllocator.destroy();
         }
         LOGGER.debug("VulkanDevice 资源已清理");
+    }
+
+    public VkInstance getVkInstance() {
+        return instance;
     }
 
     public VkPhysicalDevice getPhysicalDevice() {
@@ -298,5 +302,15 @@ public class VulkanDevice implements IDevice {
 
     public VulkanQueue getMainQueue() {
         return mainQueue;
+    }
+
+    public VulkanMemoryAllocator getMemoryAllocator() {
+        return memoryAllocator;
+    }
+
+    private void reapCompletedTransientResources() {
+        for (VulkanCommandBuffer buffer : defaultCommandPool.getAllocatedBuffers()) {
+            buffer.destroyTransientResourcesIfComplete();
+        }
     }
 }

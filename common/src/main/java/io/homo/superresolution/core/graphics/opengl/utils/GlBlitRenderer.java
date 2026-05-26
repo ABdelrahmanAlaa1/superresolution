@@ -132,11 +132,11 @@ public class GlBlitRenderer {
             );
             program.compile();
 
-                renderPass = RenderPass.builder()
+            renderPass = RenderPass.builder()
                     .frameBuffer(cachedFrameBuffer)
                     .build(RenderSystems.opengl().device());
 
-                graphicsPipeline = (GlGraphicsPipeline) GlGraphicsPipeline.builder()
+            graphicsPipeline = (GlGraphicsPipeline) GlGraphicsPipeline.builder()
                     .shader(program)
                     .renderPass(renderPass)
                     .primitiveType(PrimitiveType.TriangleStrip)
@@ -160,16 +160,10 @@ public class GlBlitRenderer {
         graphicsPipeline.descriptorSet().update();
         ICommandBuffer commandBuffer = RenderSystems.opengl().device().defaultCommandPool().createCommandBuffer();
         commandBuffer.begin();
-        RenderSystems.opengl().device().commandDecoder().beginRenderPass(commandBuffer, pass);
-        RenderSystems.opengl().device().commandDecoder().bindPipeline(commandBuffer, graphicsPipeline);
-        RenderSystems.opengl().device().commandDecoder()
-            .draw(
-                commandBuffer,
-                fullscreenQuad,
-                4,
-                0
-            );
-        RenderSystems.opengl().device().commandDecoder().endRenderPass(commandBuffer);
+        commandBuffer.beginRenderPass(pass);
+        commandBuffer.bindPipeline(graphicsPipeline);
+        commandBuffer.draw(fullscreenQuad, 4, 0);
+        commandBuffer.endRenderPass();
         commandBuffer.end();
         RenderSystems.opengl().device().submitCommandBuffer(commandBuffer);
     }

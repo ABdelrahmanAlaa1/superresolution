@@ -51,8 +51,11 @@ import io.homo.superresolution.core.graphics.impl.texture.ITexture;
 import io.homo.superresolution.core.gui.*;
 import io.homo.superresolution.core.gui.core.ContainerWidget;
 import io.homo.superresolution.core.gui.core.UIInputState;
+import io.homo.superresolution.core.gui.core.animator.TimeInterpolator;
 import io.homo.superresolution.core.gui.core.backends.interfaces.IImage;
 import io.homo.superresolution.core.gui.core.backends.interfaces.IPaint;
+import io.homo.superresolution.core.gui.core.backends.interfaces.TextAlign;
+import io.homo.superresolution.core.gui.core.backends.interfaces.TextAlignType;
 import io.homo.superresolution.core.gui.core.backends.render.RenderContext;
 import io.homo.superresolution.core.gui.core.frame.Frame;
 import io.homo.superresolution.core.gui.core.frame.ScrollableFrame;
@@ -86,6 +89,22 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
+    private static final String ABOUT_MODRINTH_URL = "https://modrinth.com/mod/superresolution";
+    private static final String ABOUT_GITHUB_URL = "https://github.com/187J3X1-114514/superresolution";
+    private static final long CONTENT_TRANSITION_FADE_OUT_DURATION_MS = 150L;
+    private static final long CONTENT_TRANSITION_FADE_IN_DURATION_MS = 150L;
+    private static final long CONTENT_TRANSITION_TOTAL_DURATION_MS =
+            CONTENT_TRANSITION_FADE_OUT_DURATION_MS + CONTENT_TRANSITION_FADE_IN_DURATION_MS;
+    private static final float CONTENT_TRANSITION_OFFSET_RATIO = 0.06f;
+    private static final float CONTENT_TRANSITION_OFFSET_MIN = 16f;
+    private static final float CONTENT_TRANSITION_OFFSET_MAX = 60f;
+    private static final float FRAME_TITLE_PILL_FONT_SIZE = 24f * 0.8f;
+    private static final float GROUP_TITLE_PILL_FONT_SIZE = 18f * 0.7f;
+    private static final float FRAME_TITLE_PILL_MIN_HEIGHT = 40f;
+    private static final float GROUP_TITLE_PILL_MIN_HEIGHT = 30f;
+    private static final float FRAME_TITLE_PILL_HORIZONTAL_PADDING = 16f;
+    private static final float GROUP_TITLE_PILL_HORIZONTAL_PADDING = 9f;
+
     private final Screen parentScreen;
     private MaterialScheme materialScheme;
     private String currentContentKey = "general";
@@ -96,6 +115,10 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
     private MaterialNavigationDrawer drawer;
     private List<Destroyable> destroyables = new ArrayList<>();
     private Map<String, List<QualityPresetOption>> qualityPresetOptionsCache;
+    private boolean contentTransitionRunning;
+    private Frame outgoingContentFrame;
+    private long contentTransitionStartMs;
+    private float contentTransitionOffsetY;
 
     public MaterialConfigScreen(Screen parentScreen) {
         super(Component.translatable("superresolution.screen.config.name"));
@@ -104,6 +127,8 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
 
     @Override
     protected void buildWidgets() {
+        clearContentTransitionState();
+
         if (qualityPresetOptionsCache == null) {
             qualityPresetOptionsCache = new HashMap<>();
         }
@@ -130,6 +155,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
 
     @Override
     public void onClose() {
+        clearContentTransitionState();
         destroyables.forEach(Destroyable::destroy);
         if (minecraft != null) {
             minecraft.setScreen(parentScreen);
@@ -156,6 +182,8 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         }
         drawer.layout().setMinHeight(ctx.viewportHeight());
         view.markLayoutDirty();
+
+        updateContentTransition();
 
         super.draw(ctx, inputState);
     }
@@ -205,16 +233,134 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         if (key.equals(currentContentKey)) {
             return;
         }
-        if (currentContentFrame != null) {
-            getView().removeFrame(currentContentFrame);
+
+        if (currentContentFrame == null || contentLayout == null) {
+            currentContentKey = key;
+            currentContentFrame = getOrCreateContentFrame(key);
+            contentLayout = getView().addFrame(currentContentFrame);
+            contentLayout.setFlexGrow(1f);
+            contentLayout.setHeightPercent(100);
+            contentLayout.setPadding(YogaEdge.ALL, 0);
+            view.markLayoutDirty();
+            return;
         }
+
+        interruptContentTransition();
+
+        getView().calculateLayout();
+
+        Frame previousFrame = currentContentFrame;
+        YogaNode previousLayout = contentLayout;
+        float previousX = previousLayout.getLayoutX();
+        float previousY = previousLayout.getLayoutY();
+        float previousWidth = previousLayout.getLayoutWidth();
+        float previousHeight = previousLayout.getLayoutHeight();
+
         currentContentKey = key;
         currentContentFrame = getOrCreateContentFrame(key);
         contentLayout = getView().addFrame(currentContentFrame);
         contentLayout.setFlexGrow(1f);
         contentLayout.setHeightPercent(100);
         contentLayout.setPadding(YogaEdge.ALL, 0);
+
+        previousLayout.setPositionType(YogaPositionType.ABSOLUTE);
+        previousLayout.setPosition(YogaEdge.LEFT, previousX);
+        previousLayout.setPosition(YogaEdge.TOP, previousY);
+        previousLayout.setWidth(previousWidth);
+        previousLayout.setHeight(previousHeight);
+        previousLayout.setFlexGrow(0f);
+        previousLayout.setFlexShrink(0f);
+
+        outgoingContentFrame = previousFrame;
+        contentTransitionRunning = true;
+        contentTransitionStartMs = System.currentTimeMillis();
+        contentTransitionOffsetY = calculateContentEnterOffset(previousHeight);
+
+        getView().setFrameRenderAlpha(outgoingContentFrame, 1f);
+        getView().setFrameRenderOffsetY(outgoingContentFrame, 0f);
+        getView().setFrameRenderAlpha(currentContentFrame, 0f);
+        getView().setFrameRenderOffsetY(currentContentFrame, contentTransitionOffsetY);
+
         view.markLayoutDirty();
+    }
+
+    private void interruptContentTransition() {
+        if (!contentTransitionRunning) {
+            return;
+        }
+
+        if (currentContentFrame != null) {
+            getView().resetFrameRenderState(currentContentFrame);
+        }
+        if (outgoingContentFrame != null) {
+            getView().resetFrameRenderState(outgoingContentFrame);
+            getView().removeFrame(outgoingContentFrame);
+        }
+
+        clearContentTransitionState();
+    }
+
+    private void updateContentTransition() {
+        if (!contentTransitionRunning) {
+            return;
+        }
+
+        if (currentContentFrame == null || outgoingContentFrame == null) {
+            finishContentTransition();
+            return;
+        }
+
+        float elapsedMs = System.currentTimeMillis() - contentTransitionStartMs;
+
+        float progress = clamp(elapsedMs / CONTENT_TRANSITION_TOTAL_DURATION_MS, 0f, 1f);
+
+        float spatialEased = TimeInterpolator.easeOutQuint().interpolation(progress);
+
+        float outAlphaProgress = clamp(progress / 0.35f, 0f, 1f);
+        float outAlpha = 1f - outAlphaProgress; // 线性淡出，避免突兀
+        float outOffsetY = -contentTransitionOffsetY * spatialEased * 0.5f;
+
+        float inAlphaProgress = clamp((progress - 0.30f) / 0.70f, 0f, 1f);
+        float inAlphaEased = TimeInterpolator.easeOutCirc().interpolation(inAlphaProgress);
+        float inOffsetY = contentTransitionOffsetY * (1f - spatialEased);
+
+        getView().setFrameRenderAlpha(outgoingContentFrame, outAlpha);
+        getView().setFrameRenderOffsetY(outgoingContentFrame, outOffsetY);
+
+        getView().setFrameRenderAlpha(currentContentFrame, inAlphaEased);
+        getView().setFrameRenderOffsetY(currentContentFrame, inOffsetY);
+
+        if (progress >= 1f) {
+            finishContentTransition();
+        }
+    }
+
+    private void finishContentTransition() {
+        if (currentContentFrame != null) {
+            getView().resetFrameRenderState(currentContentFrame);
+        }
+        if (outgoingContentFrame != null) {
+            getView().resetFrameRenderState(outgoingContentFrame);
+            getView().removeFrame(outgoingContentFrame);
+        }
+        clearContentTransitionState();
+        view.markLayoutDirty();
+    }
+
+    private void clearContentTransitionState() {
+        contentTransitionRunning = false;
+        outgoingContentFrame = null;
+        contentTransitionStartMs = 0L;
+        contentTransitionOffsetY = 0f;
+    }
+
+    private float calculateContentEnterOffset(float height) {
+        float base = Math.max(0f, height) * CONTENT_TRANSITION_OFFSET_RATIO;
+        return clamp(base, CONTENT_TRANSITION_OFFSET_MIN, CONTENT_TRANSITION_OFFSET_MAX);
+    }
+
+    private float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private Frame createNavigationDrawerFrame() {
@@ -234,8 +380,10 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 .addItem(Text.translatable("superresolution.screen.config.section.appearance").getString(), MaterialSymbols.iconPalette(), "appearance")
                 .addItem(Text.translatable("superresolution.screen.config.section.debug").getString(), MaterialSymbols.iconBugReport(), "debug")
                 .addItem(Text.translatable("superresolution.screen.config.section.experimental").getString(), MaterialSymbols.iconScience(), "experimental")
+                .addDivider()
                 .addSectionHeader(Text.translatable("superresolution.screen.config.section.profiling").getString())
                 .addItem(Text.translatable("superresolution.screen.config.section.performance").getString(), MaterialSymbols.iconSpeed(), "performance")
+                .addDivider()
                 .addSectionHeader(Text.translatable("superresolution.screen.config.section.information").getString())
                 .addItem(Text.translatable("superresolution.screen.config.section.environment").getString(), MaterialSymbols.iconInfo(), "info_environment")
                 .addItem(Text.translatable("superresolution.screen.config.section.about").getString(), MaterialSymbols.iconInfo(), "info_about")
@@ -271,9 +419,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 })
                 .build();
         builder.colorSelectOption(
-                Text.translatable("superresolution.screen.config.options.label.theme_color"),
-                SuperResolutionConfig.getThemeColor())
-                .setDefaultValue(()->Color.from("#78DC77"))
+                        Text.translatable("superresolution.screen.config.options.label.theme_color"),
+                        SuperResolutionConfig.getThemeColor())
+                .setDefaultValue(() -> Color.from("#78DC77"))
                 .setValueChangeListener(value -> {
                     MaterialUI.setScheme(MaterialScheme.from(SuperResolutionConfig.getTheme(), value,
                             SuperResolutionConfig.getThemeSchemeVariant(), SuperResolutionConfig.getThemeContrastLevel()));
@@ -305,7 +453,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                         1.0f,
                         -1.0f)
                 .setStep(0.2)
-                .setValueFormater((value)-> String.format("%.0f",value.doubleValue()*100) + "%")
+                .setValueFormater((value) -> String.format("%.0f", value.doubleValue() * 100) + "%")
                 .setDescription(Text.translatable("superresolution.screen.config.options.tooltip.theme_contrast_level"))
                 .setDefaultValue(() -> 0.0f)
                 .setValueChangeListener(value -> {
@@ -377,7 +525,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                         openLostResourceDialog(lostResources);
                         return false;
                     }
-                    if (!SuperResolutionConfig.setUpscaleAlgorithm(algo)){
+                    if (!SuperResolutionConfig.setUpscaleAlgorithm(algo)) {
                         openCreateAlgorithmFailedDialog(algo);
                         algoSelectRef[0].setSelectedValue(SuperResolutionConfig.getUpscaleAlgorithm());
                     }
@@ -656,7 +804,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
     }
 
     private void openLostResourceDialog(List<ExtraResource> resources) {
-        #if ENABLE_AUTO_DOWNLOAD
+        #if ENABLE_AUTO_DOWNLOAD == 1
         MaterialResourcesList downloadList = MaterialResourcesList.createDownload(
                 new ExtraResources(resources),
                 SuperResolutionConstants.NATIVE_LIBRARIES_DIR
@@ -698,6 +846,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 .supportingText(Text.translatable("superresolution.screen.config.dialog.local_resource.description").getString());
         dialog.style().minWidth(400f);
         dialog.style().maxWidth(600f);
+        dialog.scrimDismiss(false);
         if (Platform.currentPlatform.getOS().type.equals(OperatingSystemType.WINDOWS)) {
             dialog.addAction(
                     Text.translatable("superresolution.screen.config.dialog.local_resource.action.download_dlss_windows").getString(),
@@ -764,15 +913,15 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 .setSaveConsumer(SuperResolutionConfig::setInternalTextureFormat)
                 .build();
         builder.enumSelectorOption(
-                Text.translatable("superresolution.screen.config.options.label.interop_sync_mode"),
-                InteropSyncMode.class,
-                SuperResolutionConfig.getInteropSyncMode())
+                        Text.translatable("superresolution.screen.config.options.label.interop_sync_mode"),
+                        InteropSyncMode.class,
+                        SuperResolutionConfig.getInteropSyncMode())
                 .setDescription(Text.translatable("superresolution.screen.config.options.tooltip.interop_sync_mode"))
                 .setDefaultValue(InteropSyncMode.LowLatency)
-                .setEnumNameProvider(mode -> ((InteropSyncMode)mode).toString())
-                .setSaveConsumer((value)->{
+                .setEnumNameProvider(mode -> ((InteropSyncMode) mode).toString())
+                .setSaveConsumer((value) -> {
                     SuperResolutionConfig.setInteropSyncMode(value);
-                    if (SuperResolution.currentAlgorithm instanceof SRApiAlgorithm){
+                    if (SuperResolution.currentAlgorithm instanceof SRApiAlgorithm) {
                         SuperResolution.recreateAlgorithm();
                     }
                 })
@@ -812,7 +961,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 .setDescription(Text.translatable("superresolution.screen.config.options.tooltip.generate_motion_vectors"))
                 .setDefaultValue(() -> false)
                 .setSaveConsumer(SuperResolutionConfig::setGenerateMotionVectors)
-                .setEnableRequirement(()->false)
+                .setEnableRequirement(() -> false)
                 .build();
         addOptionGroupToContainer(container, builder);
         finalizeFrame(frame, container);
@@ -838,12 +987,15 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
 
     private void addFrameTitle(ContainerWidget container, Text title) {
         container.addChild(SpacerWidget.vertical(20f));
-        MaterialLabel titleLabel = MaterialLabel.create()
-                .text(title.getString())
-                .fontSize(24)
-                .color(MaterialScheme::primary);
-        titleLabel.layout().setMargin(YogaEdge.BOTTOM, 20);
-        container.addChild(titleLabel);
+        TitlePill titlePill = createTitlePill(
+                title.getString(),
+                FRAME_TITLE_PILL_FONT_SIZE,
+                FRAME_TITLE_PILL_MIN_HEIGHT,
+                FRAME_TITLE_PILL_HORIZONTAL_PADDING,
+                12
+        );
+        titlePill.layout().setMargin(YogaEdge.BOTTOM, 20);
+        container.addChild(titlePill);
     }
 
     private OptionBuilder createOptionBuilder(Text categoryName) {
@@ -860,17 +1012,40 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
     }
 
     private void addLabeledOptionGroup(ContainerWidget container, Text groupLabel, Consumer<OptionBuilder> configurator) {
-        MaterialLabel label = MaterialLabel.create()
-                .text(groupLabel.getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
-        label.layout().setMargin(YogaEdge.TOP, 8);
-        label.layout().setMargin(YogaEdge.BOTTOM, 6);
-        container.addChild(label);
+        TitlePill groupPill = createTitlePill(
+                groupLabel.getString(),
+                GROUP_TITLE_PILL_FONT_SIZE,
+                GROUP_TITLE_PILL_MIN_HEIGHT,
+                GROUP_TITLE_PILL_HORIZONTAL_PADDING,
+                -1
+        );
+        groupPill.layout().setMargin(YogaEdge.TOP, 8);
+        groupPill.layout().setMargin(YogaEdge.BOTTOM, 3);
+        container.addChild(groupPill);
 
         OptionBuilder builder = createOptionBuilder(groupLabel);
         configurator.accept(builder);
         addOptionGroupToContainer(container, builder);
+    }
+
+    private TitlePill createSectionPill(String text) {
+        return createTitlePill(
+                text,
+                GROUP_TITLE_PILL_FONT_SIZE,
+                GROUP_TITLE_PILL_MIN_HEIGHT,
+                GROUP_TITLE_PILL_HORIZONTAL_PADDING,
+                -1
+        );
+    }
+
+    private TitlePill createTitlePill(
+            String text,
+            float fontSize,
+            float minHeight,
+            float horizontalPadding,
+            float radius
+    ) {
+        return new TitlePill(text, fontSize, minHeight, horizontalPadding, radius);
     }
 
     private void finalizeFrame(ScrollableFrame frame, ContainerWidget container) {
@@ -992,13 +1167,10 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         };
 
         for (Pair<String, Text> operation : operations) {
-            MaterialLabel sectionLabel = MaterialLabel.create()
-                    .text(operation.right().getString())
-                    .fontSize(18)
-                    .color(MaterialScheme::secondary);
-            sectionLabel.layout().setMargin(YogaEdge.TOP, 12);
-            sectionLabel.layout().setMargin(YogaEdge.BOTTOM, 6);
-            container.addChild(sectionLabel);
+            //TitlePill sectionLabel = createSectionPill(operation.right().getString());
+            //sectionLabel.layout().setMargin(YogaEdge.TOP, 12);
+            //sectionLabel.layout().setMargin(YogaEdge.BOTTOM, 6);
+            //container.addChild(sectionLabel);
 
             MaterialChart cpuChart = MaterialChart.create()
                     .title(operation.right().getString())
@@ -1022,13 +1194,14 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                         }
                         gpuSeries.setData(msData);
                     })
-                    .updateInterval(0); //每帧
+                    .updateInterval(0);
             cpuChart.style()
                     .showAverage(true)
                     .showGrid(true)
                     .showLegend(true);
             cpuChart.layout().setWidthPercent(100);
             cpuChart.setElementHeight(180);
+            cpuChart.layout().setMargin(YogaEdge.BOTTOM, 8);
             container.addChild(cpuChart);
         }
         finalizeFrame(frame, container);
@@ -1079,10 +1252,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         ContainerWidget container = createStandardContainer();
         addFrameTitle(container, Text.translatable("superresolution.screen.config.section.environment"));
 
-        MaterialLabel label = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.config.info.environment.base").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill label = createSectionPill(
+                Text.translatable("superresolution.screen.config.info.environment.base").getString()
+        );
         label.layout().setMargin(YogaEdge.TOP, 8);
         label.layout().setMargin(YogaEdge.BOTTOM, 6);
         container.addChild(label);
@@ -1092,10 +1264,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         envCard.addChild(createInfoLine(Text.translatable("superresolution.screen.config.info.environment.native_version").getString(), safeGetNativeVersion()));
         envCard.addChild(createInfoLine(Text.translatable("superresolution.screen.config.info.environment.system").getString(), safeGetOperatingSystem()));
         container.addChild(envCard);
-        MaterialLabel labelOGL = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.config.info.environment.opengl").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill labelOGL = createSectionPill(
+                Text.translatable("superresolution.screen.config.info.environment.opengl").getString()
+        );
         labelOGL.layout().setMargin(YogaEdge.TOP, 8);
         labelOGL.layout().setMargin(YogaEdge.BOTTOM, 6);
         container.addChild(labelOGL);
@@ -1105,10 +1276,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 GraphicsCapabilities.getGLVersionString(),
                 GraphicsCapabilities.getGLExtensions()
         ));
-        MaterialLabel labelVK = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.config.info.environment.vulkan").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill labelVK = createSectionPill(
+                Text.translatable("superresolution.screen.config.info.environment.vulkan").getString()
+        );
         labelVK.layout().setMargin(YogaEdge.TOP, 8);
         labelVK.layout().setMargin(YogaEdge.BOTTOM, 6);
         container.addChild(labelVK);
@@ -1165,6 +1335,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         ScrollableFrame frame = createStandardScrollableFrame();
         ContainerWidget container = createStandardContainer();
         addFrameTitle(container, Text.translatable("superresolution.screen.config.section.about"));
+        container.addChild(createAboutBrandCard());
 
         ContainerWidget contributorSectionRow = new ContainerWidget();
         contributorSectionRow.layout().setFlexDirection(YogaFlexDirection.ROW);
@@ -1173,10 +1344,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         contributorSectionRow.layout().setJustifyContent(YogaJustify.SPACE_BETWEEN);
         contributorSectionRow.layout().setMargin(YogaEdge.BOTTOM, 6);
 
-        MaterialLabel contributorSection = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.info.text.contributors").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill contributorSection = createSectionPill(
+                Text.translatable("superresolution.screen.info.text.contributors").getString()
+        );
         contributorSectionRow.addChild(contributorSection);
 
         MaterialLabel contributorOrderHint = MaterialLabel.create()
@@ -1203,7 +1373,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                 new ContributorInfo("qwertyuiop", Text.translatable("superresolution.screen.config.info.about.contributor.qwertyuiop.desc").getString(), "https://github.com/moyongxin", "/assets/super_resolution/textures/gui/contributors/qwertyuiop.png"),
                 new ContributorInfo("猫猫狐AR", Text.translatable("superresolution.screen.config.info.about.contributor.ar.desc").getString(), "https://github.com/Argon4W", "/assets/super_resolution/textures/gui/contributors/ar.png"),
                 new ContributorInfo("辰蒙", Text.translatable("superresolution.screen.config.info.about.contributor.chenmeng.desc").getString(), "https://github.com/slmpc", "/assets/super_resolution/textures/gui/contributors/chenmeng.png"),
-                new ContributorInfo("Tahnass", Text.translatable("superresolution.screen.config.info.about.contributor.tahnass.desc").getString(), "", "/assets/super_resolution/textures/gui/contributors/tahnass.png")
+                new ContributorInfo("Tahnass", Text.translatable("superresolution.screen.config.info.about.contributor.tahnass.desc").getString(), "https://github.com/Tahnass", "/assets/super_resolution/textures/gui/contributors/tahnass.png"),
+                new ContributorInfo("StarsShine11904", Text.translatable("superresolution.screen.config.info.about.contributor.starsshine11904.desc").getString(), "https://github.com/StarsShine11904", "/assets/super_resolution/textures/gui/contributors/StarsShine11904.png"),
+                new ContributorInfo("暇じゃない暇人", Text.translatable("superresolution.screen.config.info.about.contributor.nohimazin.desc").getString(), "https://github.com/nohimazin", "/assets/super_resolution/textures/gui/contributors/nohimazin.png")
 
         ));
         Collections.shuffle(contributors);
@@ -1212,10 +1384,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         }
         container.addChild(contributorsCard);
 
-        MaterialLabel librarySection = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.config.info.about.libraries").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill librarySection = createSectionPill(
+                Text.translatable("superresolution.screen.config.info.about.libraries").getString()
+        );
         librarySection.layout().setMargin(YogaEdge.TOP, 12);
         librarySection.layout().setMargin(YogaEdge.BOTTOM, 6);
         container.addChild(librarySection);
@@ -1246,10 +1417,9 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
             librariesCard.addChild(createLibraryRow(library));
         }
         container.addChild(librariesCard);
-        MaterialLabel legalSection = MaterialLabel.create()
-                .text(Text.translatable("superresolution.screen.config.info.about.legal_notices").getString())
-                .fontSize(18)
-                .color(MaterialScheme::secondary);
+        TitlePill legalSection = createSectionPill(
+                Text.translatable("superresolution.screen.config.info.about.legal_notices").getString()
+        );
         legalSection.layout().setMargin(YogaEdge.TOP, 12);
         legalSection.layout().setMargin(YogaEdge.BOTTOM, 6);
         container.addChild(legalSection);
@@ -1291,6 +1461,83 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
 
         finalizeFrame(frame, container);
         return frame;
+    }
+
+    private InfoCard createAboutBrandCard() {
+        InfoCard card = new InfoCard();
+        card.layout().setAlignItems(YogaAlign.CENTER);
+        card.layout().setJustifyContent(YogaJustify.CENTER);
+
+        ContainerWidget row = new ContainerWidget();
+        row.layout().setFlexDirection(YogaFlexDirection.ROW);
+        row.layout().setWidthPercent(100);
+        row.layout().setAlignItems(YogaAlign.CENTER);
+        row.layout().setJustifyContent(YogaJustify.SPACE_BETWEEN);
+        row.layout().setGap(YogaGutter.COLUMN, 12);
+
+        ContainerWidget brandColumn = new ContainerWidget();
+        brandColumn.layout().setFlexDirection(YogaFlexDirection.COLUMN);
+        brandColumn.layout().setWidthPercent(60);
+        brandColumn.layout().setAlignItems(YogaAlign.CENTER);
+        brandColumn.layout().setJustifyContent(YogaJustify.CENTER);
+        brandColumn.layout().setGap(YogaGutter.COLUMN, 8);
+
+        StaticLogoWidget logoWidget = new StaticLogoWidget(100f);
+        brandColumn.addChild(logoWidget);
+
+        MaterialLabel nameLabel = MaterialLabel.create()
+                .text("Super Resolution")
+                .fontSize(20)
+                .lineHeight(20)
+                .weight(700)
+                .color(MaterialScheme::onSurface);
+        nameLabel.style().sizeToContent(true);
+        brandColumn.addChild(nameLabel);
+
+        MaterialLabel versionLabel = MaterialLabel.create()
+                .text(safeGetModVersion())
+                .fontSize(8)
+                .lineHeight(8)
+                .weight(400)
+                .color(MaterialScheme::onSurfaceVariant);
+        versionLabel.style().sizeToContent(true);
+        brandColumn.addChild(versionLabel);
+        if (Platform.currentPlatform.isDevelopmentEnvironment()) {
+            MaterialLabel devEnvLabel = MaterialLabel.create()
+                    .text("Development Environment")
+                    .fontSize(8)
+                    .lineHeight(8)
+                    .weight(400)
+                    .color(MaterialScheme::onSurfaceVariant);
+            devEnvLabel.style().sizeToContent(true);
+            brandColumn.addChild(devEnvLabel);
+        }
+
+        ContainerWidget actionColumn = new ContainerWidget();
+        actionColumn.layout().setFlexDirection(YogaFlexDirection.COLUMN);
+        actionColumn.layout().setWidthPercent(40);
+        actionColumn.layout().setAlignItems(YogaAlign.CENTER);
+        actionColumn.layout().setJustifyContent(YogaJustify.CENTER);
+        actionColumn.layout().setGap(YogaGutter.ROW, 10);
+
+        MaterialButton modrinthButton = MaterialButton.tonal("Modrinth")
+                .icon(MaterialSymbols.iconOpenInNew())
+                .size(MaterialButtonSize.Small);
+        modrinthButton.onClick(e -> openExternalLink(ABOUT_MODRINTH_URL));
+        actionColumn.addChild(modrinthButton);
+
+        MaterialButton githubButton = MaterialButton.tonal("Github")
+                .icon(MaterialSymbols.iconOpenInNew())
+                .size(MaterialButtonSize.Small);
+        githubButton.onClick(e -> openExternalLink(ABOUT_GITHUB_URL));
+        actionColumn.addChild(githubButton);
+
+        row.addChild(brandColumn);
+        row.addChild(actionColumn);
+        card.addChild(row);
+        card.layout().setMargin(YogaEdge.BOTTOM, 6);
+        card.layout().setHeight(256);
+        return card;
     }
 
     private ContainerWidget createInfoLine(String name, String value) {
@@ -1340,6 +1587,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         MaterialLabel nameLabel = MaterialLabel.create()
                 .text(contributor.name())
                 .fontSize(14)
+                .weight(700)
                 .color(MaterialScheme::onSurface);
         info.addChild(nameLabel);
 
@@ -1380,6 +1628,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
         MaterialLabel nameLabel = MaterialLabel.create()
                 .text(library.name())
                 .fontSize(14)
+                .weight(700)
                 .color(MaterialScheme::onSurface);
         info.addChild(nameLabel);
 
@@ -1498,6 +1747,95 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                                String githubUrl) {
     }
 
+    private static class TitlePill extends MaterialWidget<TitlePill> {
+        private final String text;
+        private final float fontSize;
+        private final float minHeight;
+        private final float horizontalPadding;
+        private final float radius;
+
+        TitlePill(String text, float fontSize, float minHeight, float horizontalPadding, float radius) {
+            this.text = text == null ? "" : text;
+            this.fontSize = fontSize;
+            this.minHeight = minHeight;
+            this.horizontalPadding = horizontalPadding;
+            this.radius = radius;
+            getLayoutNode().setDebugName("TitlePill");
+            setElementSize(horizontalPadding * 2f, minHeight);
+        }
+
+        @Override
+        protected void init() {
+        }
+
+        @Override
+        public void layouting(RenderContext ctx) {
+            float textWidth = ctx.measureTextWidth(text, fontSize, fontSize + 1f, 700);
+            setElementSize((horizontalPadding * 2f) + textWidth, minHeight);
+        }
+
+        @Override
+        protected boolean isInteractive() {
+            return false;
+        }
+
+        @Override
+        public void render(RenderContext ctx, UIInputState inputState) {
+            Rectangle bounds = getBounds();
+            ctx.roundedRect(
+                    bounds.x,
+                    bounds.y,
+                    bounds.width,
+                    bounds.height,
+                    radius < 0 ? bounds.height / 2f : radius,
+                    scheme().surfaceContainerLow(),
+                    true
+            );
+
+            ctx.drawAlignedText(
+                    ctx.font(),
+                    fontSize,
+                    text,
+                    bounds.x + horizontalPadding,
+                    bounds.getCenterY(),
+                    Math.max(0f, bounds.width - (horizontalPadding * 2f)),
+                    bounds.height,
+                    700,
+                    scheme().onSurface(),
+                    TextAlign.of(TextAlignType.ALIGN_LEFT, TextAlignType.ALIGN_MIDDLE),
+                    false
+            );
+        }
+    }
+
+    private static class StaticLogoWidget extends MaterialWidget<StaticLogoWidget> {
+        private final float logoSize;
+
+        StaticLogoWidget(float logoSize) {
+            this.logoSize = logoSize;
+            setElementSize(logoSize, logoSize);
+        }
+
+        @Override
+        protected void init() {
+        }
+
+        @Override
+        protected boolean isInteractive() {
+            return false;
+        }
+
+        @Override
+        public void render(RenderContext ctx, UIInputState inputState) {
+            LogoRenderer.Logo.render(
+                    ctx,
+                    scheme().primary(),
+                    logoSize,
+                    getBounds().getCenter()
+            );
+        }
+    }
+
     private static class InfoCard extends MaterialContainerWidget<InfoCard> {
         InfoCard() {
 
@@ -1573,7 +1911,7 @@ public class MaterialConfigScreen extends NanoVGScreen<MaterialConfigScreen> {
                                 inputStream
                         );
                     } catch (Throwable ignored) {
-                        ignored.printStackTrace();
+                        SuperResolution.LOGGER.trace("加载配置界面图像失败", ignored);
                         loaded = true;
                         return;
                     }

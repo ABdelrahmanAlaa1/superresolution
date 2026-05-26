@@ -19,12 +19,15 @@
 package io.homo.superresolution.core.graphics.impl.command;
 
 import io.homo.superresolution.core.graphics.impl.buffer.IBuffer;
+import io.homo.superresolution.core.graphics.impl.buffer.IBufferData;
 import io.homo.superresolution.core.graphics.impl.device.IDevice;
 import io.homo.superresolution.core.graphics.impl.pipeline.ComputePipeline;
 import io.homo.superresolution.core.graphics.impl.pipeline.GraphicsPipeline;
 import io.homo.superresolution.core.graphics.impl.pipeline.RenderPass;
 import io.homo.superresolution.core.graphics.impl.texture.ITexture;
 import io.homo.superresolution.core.graphics.impl.vertex.IVertexBuffer;
+
+import java.nio.ByteBuffer;
 
 public interface ICommandDecoder {
     ResourceStateTracker getStateTracker();
@@ -42,6 +45,26 @@ public interface ICommandDecoder {
     void copyTexture(ICommandBuffer commandBuffer, ITexture src, ITexture dst, int srcX0, int srcY0, int srcX1, int srcY1, int srcLevel, int dstX0, int dstY0, int dstX1, int dstY1, int dstLevel);
 
     void copyBuffer(ICommandBuffer commandBuffer, IBuffer src, IBuffer dst, long srcOffset, long dstOffset, long size);
+
+    default void writeToBuffer(ICommandBuffer commandBuffer, IBuffer dst, long dstOffset, ByteBuffer data) {
+        writeToBuffer(commandBuffer, dst, dstOffset, data.remaining(), data);
+    }
+
+    void writeToBuffer(ICommandBuffer commandBuffer, IBuffer dst, long dstOffset, long size, ByteBuffer data);
+
+    default void writeToBuffer(ICommandBuffer commandBuffer, IBuffer dst, long dstOffset, IBufferData data) {
+        writeToBuffer(commandBuffer, dst, dstOffset, data.asByteBuffer());
+    }
+
+    default void writeToBuffer(ICommandBuffer commandBuffer, IBuffer dst, long dstOffset, long size, IBufferData data) {
+        writeToBuffer(commandBuffer, dst, dstOffset, size, data.asByteBuffer());
+    }
+
+    void writeToTexture(ICommandBuffer commandBuffer, ITexture texture, ByteBuffer data, int x, int y, int width, int height, int mipLevel);
+
+    default void writeToTexture(ICommandBuffer commandBuffer, ITexture texture, ByteBuffer data, int x, int y, int width, int height) {
+        writeToTexture(commandBuffer, texture, data, x, y, width, height, 0);
+    }
 
     void setViewport(ICommandBuffer commandBuffer, float x, float y, float width, float height);
 

@@ -18,12 +18,8 @@
 
 package io.homo.superresolution.core.graphics.vulkan;
 
-import io.homo.superresolution.core.graphics.impl.device.IDevice;
+import io.homo.superresolution.core.graphics.GraphicsDevice;
 import io.homo.superresolution.core.graphics.system.IRenderSystem;
-import io.homo.superresolution.core.graphics.vulkan.utils.VkReflectionHelper;
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanCapabilities;
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanQueueUtils;
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanValidationLayers;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -34,7 +30,7 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.memUTF8;
 import static org.lwjgl.vulkan.EXTMutableDescriptorType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
@@ -46,7 +42,7 @@ import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
 import static org.lwjgl.vulkan.VK12.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 
 public class VkRenderSystem implements IRenderSystem {
-    public static final Logger LOGGER = LoggerFactory.getLogger("SuperResolution-Vulkan");
+    public static final Logger LOGGER = LoggerFactory.getLogger("SuperResolution/Vulkan");
     public static final boolean ENABLE_VALIDATION = VulkanValidationLayers.checkValidationLayerSupport();
     private static final int DEFAULT_API_VERSION = VK_API_VERSION_1_2;
 
@@ -64,6 +60,14 @@ public class VkRenderSystem implements IRenderSystem {
         PointerBuffer buffer = stack.mallocPointer(list.size());
         list.forEach(e -> buffer.put(stack.UTF8(e)));
         return buffer.rewind();
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
     }
 
     public VkInstance getVulkanInstance() {
@@ -94,7 +98,6 @@ public class VkRenderSystem implements IRenderSystem {
         VkPhysicalDevice physicalDevice = selectPhysicalDevice();
         capabilities.init(instance, physicalDevice);
         this.vulkanDevice = createLogicalDeviceWithCapabilities(physicalDevice);
-        vulkanDevice.getCommandManager().init();
         LOGGER.info("Vulkan 初始化完成");
     }
 
@@ -169,6 +172,34 @@ public class VkRenderSystem implements IRenderSystem {
             }
             PointerBuffer devices = stack.mallocPointer(deviceCount.get(0));
             VK_CHECK(vkEnumeratePhysicalDevices(instance, deviceCount, devices));
+            List<GraphicsDevice> graphicsDevices = new ArrayList<>();
+            GraphicsDevice openglDevice = GraphicsDevice.createFromOpenGL();
+            LOGGER.info("OpenGL 设备: {} (Device UUID: {}, Driver UUID: {})",
+                    openglDevice.deviceName(),
+                    bytesToHex(openglDevice.deviceUUID()),
+                    bytesToHex(openglDevice.driverUUID())
+            );
+            for (int i = 0; i < deviceCount.get(0); i++) {
+                VkPhysicalDevice physicalDevice = new VkPhysicalDevice(devices.get(i), instance);
+                graphicsDevices.add(GraphicsDevice.createFromVulkan(physicalDevice));
+            }
+            LOGGER.info("检测到 {} 个 Vulkan 物理设备:", graphicsDevices.size());
+            for (int i = 0; i < deviceCount.get(0); i++) {
+                GraphicsDevice device = graphicsDevices.get(i);
+                LOGGER.info("[{}] {} (Device UUID: {}, Driver UUID: {})",
+                        i,
+                        device.deviceName(),
+                        bytesToHex(device.deviceUUID()),
+                        bytesToHex(device.driverUUID())
+                );
+            }
+
+            for (int i = 0; i < deviceCount.get(0); i++) {
+                if (graphicsDevices.get(i).equals(openglDevice)) {
+                    return new VkPhysicalDevice(devices.get(i), instance);
+                }
+            }
+            LOGGER.error("未找到与当前 OpenGL 设备匹配的 Vulkan 物理设备，默认选择第一个设备");
             return new VkPhysicalDevice(devices.get(0), instance);
         }
     }
@@ -272,6 +303,7 @@ public class VkRenderSystem implements IRenderSystem {
             VK_CHECK(vkCreateDevice(physicalDevice, createInfo, null, pDevice),
                     "Failed to create logical device");
             return new VulkanDevice(
+                    instance,
                     physicalDevice,
                     new VkDevice(pDevice.get(0), physicalDevice, createInfo),
                     graphicsFamilyIndex

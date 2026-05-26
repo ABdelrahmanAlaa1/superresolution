@@ -29,10 +29,7 @@ import io.homo.superresolution.common.upscale.sgsr.v2.variants.Sgsr2PassCompute;
 import io.homo.superresolution.common.upscale.sgsr.v2.variants.Sgsr2PassFragment;
 import io.homo.superresolution.common.upscale.sgsr.v2.variants.Sgsr3PassCompute;
 import io.homo.superresolution.core.RenderSystems;
-import io.homo.superresolution.core.graphics.impl.buffer.BufferDescription;
-import io.homo.superresolution.core.graphics.impl.buffer.BufferUsage;
-import io.homo.superresolution.core.graphics.impl.buffer.Std140StructBuilder;
-import io.homo.superresolution.core.graphics.impl.buffer.StructuredData;
+import io.homo.superresolution.core.graphics.impl.buffer.*;
 import io.homo.superresolution.core.graphics.impl.framebuffer.IFrameBuffer;
 import io.homo.superresolution.core.graphics.impl.texture.ITexture;
 import io.homo.superresolution.core.graphics.impl.texture.TextureDescription;
@@ -49,6 +46,11 @@ import java.util.function.Consumer;
 public class Sgsr2 extends AbstractAlgorithm {
     private AbstractSgsrVariant variantInstance;
     private SgsrVariant currentVariant;
+
+    public StructuredData paramsData() {
+        return paramsData;
+    }
+
     private StructuredData paramsData;
     private GlBuffer paramsUbo;
     private IFrameBuffer output;
@@ -70,8 +72,8 @@ public class Sgsr2 extends AbstractAlgorithm {
         this.initDesc = desc;
         ITexture outputTex = RenderSystems.current().device().createTexture(TextureDescription.create()
                         .type(TextureType.Texture2D)
-                        .width(RenderHandlerManager.getRenderWidth())
-                        .height(RenderHandlerManager.getRenderHeight())
+                        .width(RenderHandlerManager.getScreenWidth())
+                        .height(RenderHandlerManager.getScreenHeight())
                         .usages(TextureUsages.create().sampler().storage().sampler())
                         .format(SuperResolutionConfig.getInternalTextureFormat())
                         .label("Sgsr2Output")
@@ -95,11 +97,10 @@ public class Sgsr2 extends AbstractAlgorithm {
                 .uintEntry("reset")
                 .build();
         paramsUbo = RenderSystems.current().device().createBuffer(BufferDescription.create()
-                .usage(BufferUsage.Ubo)
+                .usages(BufferUsages.create().ubo().transferDst())
                 .size(paramsData.size())
                 .build()
         );
-        paramsUbo.setBufferData(paramsData);
     }
 
     @Override
@@ -116,6 +117,7 @@ public class Sgsr2 extends AbstractAlgorithm {
     @Override
     public void destroy() {
         safeVariantInstance(Destroyable::destroy);
+        variantInstance = null;
         if (output != null) {
             output.destroy();
             output = null;
@@ -130,10 +132,13 @@ public class Sgsr2 extends AbstractAlgorithm {
         }
     }
 
+
     @Override
     public void resize(int width, int height) {
         destroy();
         initialize(initDesc);
+        safeVariantInstance(Destroyable::destroy);
+        variantInstance = null;
     }
 
     @Override
@@ -194,7 +199,6 @@ public class Sgsr2 extends AbstractAlgorithm {
         paramsData.setUint("bSameCamera", isCameraStill ? 1 : 0);
         paramsData.setUint("reset", consumeHistoryReset() ? 1 : 0);
         paramsData.fillBuffer();
-        paramsUbo.upload();
     }
 
     private void initVariant() {

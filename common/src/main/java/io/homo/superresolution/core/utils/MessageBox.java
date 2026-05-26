@@ -18,28 +18,39 @@
 
 package io.homo.superresolution.core.utils;
 
-import javax.swing.*;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 public class MessageBox {
-    private static void createMsgBox(String text, String caption, int messageType) {
-        JOptionPane.showMessageDialog(
-                null,
-                text,
+    private static void createMsgBox(String text, String caption, String type) {
+        #if MC_VER > MC_1_21_11
+        TinyFileDialogs.tinyfd_messageBox(
                 caption,
-                messageType
+                text,
+                "ok",
+                type,
+                0
         );
+        #else
+        TinyFileDialogs.tinyfd_messageBox(
+                caption,
+                text,
+                "ok",
+                type,
+                true
+        );
+        #endif
     }
 
     public static void createError(String text, String caption) {
-        createMsgBox(text, caption, JOptionPane.ERROR_MESSAGE);
+        createMsgBox(text, caption, "error");
     }
 
     public static void createWarn(String text, String caption) {
-        createMsgBox(text, caption, JOptionPane.WARNING_MESSAGE);
+        createMsgBox(text, caption, "warning");
     }
 
     public static void createInfo(String text, String caption) {
-        createMsgBox(text, caption, JOptionPane.INFORMATION_MESSAGE);
+        createMsgBox(text, caption, "info");
     }
 
     public static void main(String[] args) {

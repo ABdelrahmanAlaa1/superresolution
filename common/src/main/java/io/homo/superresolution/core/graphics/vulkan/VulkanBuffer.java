@@ -20,121 +20,85 @@ package io.homo.superresolution.core.graphics.vulkan;
 
 import io.homo.superresolution.core.graphics.impl.buffer.BufferDescription;
 import io.homo.superresolution.core.graphics.impl.buffer.BufferUsage;
+import io.homo.superresolution.core.graphics.impl.buffer.BufferUsages;
 import io.homo.superresolution.core.graphics.impl.buffer.IBuffer;
-import io.homo.superresolution.core.graphics.impl.buffer.IBufferData;
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanException;
+import io.homo.superresolution.core.graphics.impl.command.CommandBufferBehavior;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.VkBufferCreateInfo;
-import org.lwjgl.vulkan.VkMemoryAllocateInfo;
-import org.lwjgl.vulkan.VkMemoryRequirements;
-import org.lwjgl.vulkan.VkPhysicalDeviceMemoryProperties;
+
 
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
 
-import static io.homo.superresolution.core.graphics.vulkan.utils.VulkanUtils.VK_CHECK;
-import static org.lwjgl.system.MemoryStack.stackPush;
+import static io.homo.superresolution.core.graphics.vulkan.VulkanUtils.VK_CHECK;
 import static org.lwjgl.vulkan.VK10.*;
 
 public class VulkanBuffer implements IBuffer {
     private final VulkanDevice device;
+    private final VulkanMemoryAllocator allocator;
     private final long size;
-    private final BufferUsage usage;
+    private final BufferUsages usages;
+    private final boolean hostVisible;
     private long buffer = VK_NULL_HANDLE;
-    private long memory = VK_NULL_HANDLE;
-    private IBufferData bufferData;
+    private long vmaAllocation;
+    private ByteBuffer mappedBuffer;
+    private boolean mapped;
+    private boolean mappedWrite;
+    private boolean mappedDirect;
+    private int mappedOffsetInBytes;
+    private int mappedLengthInBytes;
 
     public VulkanBuffer(VulkanDevice device, BufferDescription description) {
         this.device = device;
+        this.allocator = device.getMemoryAllocator();
         this.size = description.size();
-        this.usage = description.usage();
+        this.usages = description.usage();
+        this.hostVisible = usages.has(BufferUsage.TransferSrc);
 
-        try (MemoryStack stack = stackPush()) {
-            createBuffer(stack);
-            allocateMemory(stack);
-        }
-    }
-
-    private void createBuffer(MemoryStack stack) {
-        VkBufferCreateInfo bufferInfo = VkBufferCreateInfo.calloc(stack)
-                .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
-                .size(size)
-                .usage(translateUsage(usage))
-                .sharingMode(VK_SHARING_MODE_EXCLUSIVE);
-
-        LongBuffer pBuffer = stack.mallocLong(1);
-        VK_CHECK(vkCreateBuffer(device.getVkDevice(), bufferInfo, null, pBuffer),
-                "Failed to create buffer");
-        buffer = pBuffer.get(0);
-    }
-
-    private void allocateMemory(MemoryStack stack) {
-        VkMemoryRequirements memReqs = VkMemoryRequirements.calloc(stack);
-        vkGetBufferMemoryRequirements(device.getVkDevice(), buffer, memReqs);
-
-        int memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-        VkMemoryAllocateInfo allocInfo = VkMemoryAllocateInfo.calloc(stack)
-                .sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO)
-                .allocationSize(memReqs.size())
-                .memoryTypeIndex(findMemoryType(memReqs.memoryTypeBits(), memoryProperties));
-
-        LongBuffer pMemory = stack.mallocLong(1);
-        VK_CHECK(vkAllocateMemory(device.getVkDevice(), allocInfo, null, pMemory),
-                "Failed to allocate buffer memory");
-        memory = pMemory.get(0);
-
-        VK_CHECK(vkBindBufferMemory(device.getVkDevice(), buffer, memory, 0),
-                "Failed to bind buffer memory");
-    }
-
-    private int findMemoryType(int typeFilter, int properties) {
-        try (MemoryStack stack = stackPush()) {
-            VkPhysicalDeviceMemoryProperties memProperties = VkPhysicalDeviceMemoryProperties.calloc(stack);
-            vkGetPhysicalDeviceMemoryProperties(device.getPhysicalDevice(), memProperties);
-
-            for (int i = 0; i < memProperties.memoryTypeCount(); i++) {
-                if ((typeFilter & (1 << i)) != 0 &&
-                        (memProperties.memoryTypes(i).propertyFlags() & properties) == properties) {
-                    return i;
-                }
-            }
-        }
-        throw new VulkanException("Failed to find suitable memory type for buffer");
+        createBuffer();
+        allocateMemory();
     }
 
     private static int translateUsage(BufferUsage usage) {
         return switch (usage) {
             case Ubo -> VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            case StaticDraw, DynamicDraw -> VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            case CopySrc -> VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            case CopyDst -> VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            case StaticDraw, DynamicDraw ->
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            case TransferSrc -> VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            case TransferDst -> VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         };
     }
 
-    @Override
-    public IBufferData data() {
-        return bufferData;
+    private static int translateUsage(BufferUsages usage) {
+        int flags = 0;
+        for (BufferUsage u : usage.getUsages()) {
+            flags |= translateUsage(u);
+        }
+        return flags;
     }
 
-    @Override
-    public void upload() {
-        if (bufferData == null) {
-            throw new IllegalStateException("No buffer data to upload");
-        }
+    private void createBuffer() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkBufferCreateInfo bufferInfo = VkBufferCreateInfo.calloc(stack)
+                    .sType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO)
+                    .size(size)
+                    .usage(translateUsage(usages))
+                    .sharingMode(VK_SHARING_MODE_EXCLUSIVE);
 
-        ByteBuffer src = bufferData.asByteBuffer();
-        long uploadSize = Math.min(src.remaining(), size);
-
-        try (MemoryStack stack = stackPush()) {
-            var ppData = stack.mallocPointer(1);
-            VK_CHECK(vkMapMemory(device.getVkDevice(), memory, 0, uploadSize, 0, ppData),
-                    "Failed to map buffer memory");
-            long mappedPtr = ppData.get(0);
-            MemoryUtil.memCopy(MemoryUtil.memAddress(src), mappedPtr, uploadSize);
-            vkUnmapMemory(device.getVkDevice(), memory);
+            LongBuffer pBuffer = stack.mallocLong(1);
+            VK_CHECK(vkCreateBuffer(device.getVkDevice(), bufferInfo, null, pBuffer),
+                    "Failed to create buffer");
+            buffer = pBuffer.get(0);
         }
+    }
+
+    private void allocateMemory() {
+        int memoryProperties = hostVisible
+                ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+                : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        vmaAllocation = allocator.allocateBufferMemory(buffer, memoryProperties);
     }
 
     @Override
@@ -143,13 +107,74 @@ public class VulkanBuffer implements IBuffer {
     }
 
     @Override
-    public BufferUsage getUsage() {
-        return usage;
+    public BufferUsages getUsages() {
+        return usages;
     }
 
     @Override
-    public void setBufferData(IBufferData bufferData) {
-        this.bufferData = bufferData;
+    public ByteBuffer map(int offsetInBytes, int lengthInBytes, boolean write) {
+        validateRange(offsetInBytes, lengthInBytes);
+        if (mapped) {
+            throw new IllegalStateException("Buffer is already mapped");
+        }
+
+        mapped = true;
+        mappedWrite = write;
+        mappedOffsetInBytes = offsetInBytes;
+        mappedLengthInBytes = lengthInBytes;
+        if (hostVisible) {
+            mappedBuffer = allocator.mapMemory(vmaAllocation, offsetInBytes, lengthInBytes);
+            mappedDirect = true;
+        } else {
+            if (!write) {
+                mapped = false;
+                throw new UnsupportedOperationException("Device-local Vulkan buffer does not support read mapping");
+            }
+            mappedBuffer = MemoryUtil.memAlloc(lengthInBytes);
+            mappedDirect = false;
+        }
+        return mappedBuffer;
+    }
+
+    @Override
+    public void unmap() {
+        if (!mapped) {
+            throw new IllegalStateException("Buffer is not mapped");
+        }
+
+        try {
+            if (mappedDirect) {
+                allocator.unmapMemory(vmaAllocation);
+            } else if (mappedWrite) {
+                ByteBuffer src = mappedBuffer.duplicate();
+                src.position(0);
+                src.limit(mappedLengthInBytes);
+                uploadNow(src, mappedOffsetInBytes);
+            }
+        } finally {
+            if (!mappedDirect && mappedBuffer != null) {
+                MemoryUtil.memFree(mappedBuffer);
+            }
+            mappedBuffer = null;
+            mapped = false;
+            mappedWrite = false;
+            mappedDirect = false;
+            mappedOffsetInBytes = 0;
+            mappedLengthInBytes = 0;
+        }
+    }
+
+    void writeHostVisible(ByteBuffer data, int offsetInBytes) {
+        ByteBuffer src = data.duplicate();
+        int lengthInBytes = src.remaining();
+        validateRange(offsetInBytes, lengthInBytes);
+
+        ByteBuffer mapped = allocator.mapMemory(vmaAllocation, offsetInBytes, lengthInBytes);
+        try {
+            MemoryUtil.memCopy(MemoryUtil.memAddress(src), MemoryUtil.memAddress(mapped), lengthInBytes);
+        } finally {
+            allocator.unmapMemory(vmaAllocation);
+        }
     }
 
     @Override
@@ -157,15 +182,30 @@ public class VulkanBuffer implements IBuffer {
         return buffer;
     }
 
+    private void validateRange(int offsetInBytes, int lengthInBytes) {
+        if (offsetInBytes < 0 || lengthInBytes < 0) {
+            throw new IllegalArgumentException("Buffer range cannot be negative");
+        }
+        if ((long) offsetInBytes + lengthInBytes > size) {
+            throw new IllegalArgumentException("Buffer range exceeds buffer size");
+        }
+    }
+
+    private void uploadNow(ByteBuffer data, int offsetInBytes) {
+        VulkanCommandBuffer commandBuffer = (VulkanCommandBuffer) device.defaultCommandPool().createCommandBuffer(CommandBufferBehavior.OneTimeSubmit);
+        commandBuffer.begin();
+        commandBuffer.writeToBuffer(this, offsetInBytes, data);
+        commandBuffer.end();
+        commandBuffer.submit(device);
+    }
+
     @Override
     public void destroy() {
-        if (buffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device.getVkDevice(), buffer, null);
-            buffer = VK_NULL_HANDLE;
+        if (mapped) {
+            unmap();
         }
-        if (memory != VK_NULL_HANDLE) {
-            vkFreeMemory(device.getVkDevice(), memory, null);
-            memory = VK_NULL_HANDLE;
-        }
+        allocator.freeBuffer(buffer, vmaAllocation);
+        buffer = VK_NULL_HANDLE;
+        vmaAllocation = 0;
     }
 }

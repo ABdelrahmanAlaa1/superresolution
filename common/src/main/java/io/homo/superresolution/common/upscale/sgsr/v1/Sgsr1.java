@@ -65,10 +65,9 @@ public class Sgsr1 extends AbstractAlgorithm {
                 .build();
         ubo = RenderSystems.current().device().createBuffer(
                 BufferDescription.create()
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .size(buffer.size())
                         .build());
-        ubo.setBufferData(buffer);
         output = RenderSystems.current().device().createTexture(
                 TextureDescription.create()
                         .type(TextureType.Texture2D)
@@ -97,7 +96,6 @@ public class Sgsr1 extends AbstractAlgorithm {
         sgsrShader.compile();
         renderPass = RenderSystems.current().device().createRenderPass(
                 RenderPass.builder()
-                        .clearColorOnBegin(0,0,0,0,1)
                         .frameBuffer(outputFbo)
         );
         sgsrPipeline = GlGraphicsPipeline.builder()
@@ -125,29 +123,17 @@ public class Sgsr1 extends AbstractAlgorithm {
 
         );
         buffer.fillBuffer();
-        ubo.setBufferData(buffer);
-        ubo.upload();
         sgsrPipeline.descriptorSet().samplerTexture("ps0",dispatchResource.resources().colorTexture());
         sgsrPipeline.descriptorSet().uniformBuffer("sgsr1_data", ubo);
         sgsrPipeline.descriptorSet().update();
         ICommandBuffer commandBuffer = RenderSystems.current().device().defaultCommandPool().createCommandBuffer();
         commandBuffer.begin();
-        commandBuffer.decoder().setViewport(
-                commandBuffer,
-                0,
-                0,
-                dispatchResource.screenWidth(),
-                dispatchResource.screenHeight()
-        );
-        commandBuffer.decoder().beginRenderPass(commandBuffer, renderPass);
-        commandBuffer.decoder().bindPipeline(commandBuffer, sgsrPipeline);
-        commandBuffer.decoder().draw(
-                commandBuffer,
-                quadVertexBuffer,
-                quadVertexBuffer.getVertexCount(),
-                0
-        );
-        commandBuffer.decoder().endRenderPass(commandBuffer);
+        commandBuffer.writeToBuffer(ubo, 0, buffer);
+        commandBuffer.setViewport(0, 0, dispatchResource.screenWidth(), dispatchResource.screenHeight());
+        commandBuffer.beginRenderPass(renderPass);
+        commandBuffer.bindPipeline(sgsrPipeline);
+        commandBuffer.draw(quadVertexBuffer, quadVertexBuffer.getVertexCount(), 0);
+        commandBuffer.endRenderPass();
         commandBuffer.end();
         RenderSystems.current().device().submitCommandBuffer(commandBuffer);
         return true;

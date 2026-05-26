@@ -19,8 +19,8 @@
 package io.homo.superresolution.core.gui.core.view;
 
 import io.homo.superresolution.core.gui.core.AbstractWidget;
-import io.homo.superresolution.core.gui.core.UIInputState;
 import io.homo.superresolution.core.gui.core.TooltipRenderer;
+import io.homo.superresolution.core.gui.core.UIInputState;
 import io.homo.superresolution.core.gui.core.backends.render.RenderContext;
 import io.homo.superresolution.core.gui.core.frame.Frame;
 import io.homo.superresolution.core.gui.core.impl.Rectangle;
@@ -37,11 +37,11 @@ import java.util.List;
 public class View {
     private final List<FrameEntry> frames = new ArrayList<>();
     private final YogaNode rootNode;
+    private final TooltipRenderer tooltipRenderer = new TooltipRenderer();
     private float viewportWidth;
     private float viewportHeight;
     private boolean layoutDirty = true;
     private MaterialDialog activeDialog;
-    private final TooltipRenderer tooltipRenderer = new TooltipRenderer();
 
     public View() {
         this.rootNode = new YogaNode();
@@ -92,6 +92,31 @@ public class View {
         return frames.stream().map(e -> e.frame).toList();
     }
 
+    public void setFrameRenderAlpha(Frame frame, float alpha) {
+        FrameEntry entry = findFrameEntry(frame);
+        if (entry == null) {
+            return;
+        }
+        entry.renderAlpha = Math.max(0f, Math.min(1f, alpha));
+    }
+
+    public void setFrameRenderOffsetY(Frame frame, float offsetY) {
+        FrameEntry entry = findFrameEntry(frame);
+        if (entry == null) {
+            return;
+        }
+        entry.renderOffsetY = offsetY;
+    }
+
+    public void resetFrameRenderState(Frame frame) {
+        FrameEntry entry = findFrameEntry(frame);
+        if (entry == null) {
+            return;
+        }
+        entry.renderAlpha = 1f;
+        entry.renderOffsetY = 0f;
+    }
+
     public void markLayoutDirty() {
         this.layoutDirty = true;
     }
@@ -136,9 +161,11 @@ public class View {
             float y = node.getLayoutY();
 
             ctx.save();
-            ctx.translate(x, y);
+            ctx.translate(x, y + entry.renderOffsetY);
+            ctx.pushAlpha(entry.renderAlpha);
 
             entry.frame.render(ctx, inputState);
+            ctx.popAlpha();
             ctx.restore();
         }
 
@@ -190,8 +217,7 @@ public class View {
     public void dispatchMousePress(float x, float y, int button) {
         if (activeDialog != null) {
             activeDialog.handleMousePress(x, y, button);
-            //正在淡入时依旧让Frame接受事件
-            if (!(!activeDialog.isDismissing() && activeDialog.isShowing())) {
+            if (!activeDialog.isFadeIn()) {
                 return;
             }
         }
@@ -213,8 +239,7 @@ public class View {
     public void dispatchMouseRelease(float x, float y, int button) {
         if (activeDialog != null) {
             activeDialog.handleMouseRelease(x, y, button);
-            //正在淡入时依旧让Frame接受事件，避免类似于按钮被点击后正常接收Press事件但未接收Release事件的问题
-            if (!(!activeDialog.isDismissing() && activeDialog.isShowing())) {
+            if (!activeDialog.isFadeIn()) {
                 return;
             }
         }
@@ -380,13 +405,26 @@ public class View {
         }
     }
 
+    private FrameEntry findFrameEntry(Frame frame) {
+        for (FrameEntry entry : frames) {
+            if (entry.frame == frame) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
     private static class FrameEntry {
         final Frame frame;
         final YogaNode layoutNode;
+        float renderAlpha;
+        float renderOffsetY;
 
         FrameEntry(Frame frame, YogaNode layoutNode) {
             this.frame = frame;
             this.layoutNode = layoutNode;
+            this.renderAlpha = 1f;
+            this.renderOffsetY = 0f;
         }
     }
 }

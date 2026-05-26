@@ -112,8 +112,10 @@ dependencies {
         implementation("io.github.douira:glsl-transformer:3.0.0-pre3")
     }
 
-    implementation("org.lwjgl:lwjgl-vulkan:${versionConfig.common.lwjglVersion}")
-    include("org.lwjgl:lwjgl-vulkan:${versionConfig.common.lwjglVersion}")
+    implementation("org.lwjgl:lwjgl-vulkan:${versionConfig.common.lwjglVersion}")?.let { include(it) }
+    implementation("org.lwjgl:lwjgl-vma:${versionConfig.common.lwjglVersion}")?.let { include(it) }
+    implementation("org.lwjgl:lwjgl-vma::natives-windows")?.let { include(it) }
+    implementation("org.lwjgl:lwjgl-vma::natives-linux")?.let { include(it) }
 
     val nightToml = implementation("com.electronwill.night-config:toml:3.8.0")
     if (nightToml != null) include(nightToml)
@@ -184,6 +186,7 @@ loom {
             vmArg("-XX:+CreateMinidumpOnCrash")
             vmArg("--enable-preview")
             vmArg("--enable-native-access=ALL-UNNAMED")
+            vmArg("-Dmixin.debug.export=true")
             ideConfigGenerated(true)
             runDir("../runs/fabric")
         }
@@ -213,6 +216,11 @@ tasks.named<ProcessResources>("processResources") {
         filter { line: String ->
             line.replace("\"{versionRange}\"", fabricVersionRange)
         }
+    }
+    if (gradle.extensions.extraProperties.properties["isUseDebugLib"] as? Boolean == true){
+        exclude("**/libSuperResolution*+*+release.*")
+    } else {
+        exclude("**/libSuperResolution*+*+debug.*")
     }
 }
 

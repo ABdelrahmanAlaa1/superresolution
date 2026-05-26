@@ -1,3 +1,21 @@
+/*
+ * Super Resolution
+ * Copyright (c) 2026. 187J3X1-114514
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 package io.homo.superresolution.common.upscale;
 
 import io.homo.superresolution.api.AbstractAlgorithm;
@@ -6,7 +24,6 @@ import io.homo.superresolution.common.config.SuperResolutionConfig;
 import io.homo.superresolution.common.config.enums.InteropSyncMode;
 import io.homo.superresolution.common.minecraft.handler.RenderHandlerManager;
 import io.homo.superresolution.core.RenderSystems;
-import io.homo.superresolution.core.graphics.impl.CopyOperation;
 import io.homo.superresolution.core.graphics.impl.framebuffer.FramebufferDescription;
 import io.homo.superresolution.core.graphics.impl.framebuffer.IFrameBuffer;
 import io.homo.superresolution.core.graphics.impl.texture.TextureDescription;
@@ -16,12 +33,11 @@ import io.homo.superresolution.core.graphics.impl.texture.TextureUsages;
 import io.homo.superresolution.core.graphics.opengl.GlDevice;
 import io.homo.superresolution.core.graphics.opengl.texture.GlImportableTexture2D;
 import io.homo.superresolution.core.graphics.opengl.texture.GlTexture2D;
-import io.homo.superresolution.core.graphics.opengl.utils.GlTextureCopier;
 import io.homo.superresolution.core.graphics.vulkan.VkGlInteropSemaphore;
 import io.homo.superresolution.core.graphics.vulkan.VulkanCommandBuffer;
 import io.homo.superresolution.core.graphics.vulkan.VulkanDevice;
 import io.homo.superresolution.core.graphics.vulkan.VulkanTexture;
-import io.homo.superresolution.core.graphics.vulkan.utils.VulkanCommandBufferRing;
+import io.homo.superresolution.core.graphics.vulkan.VulkanCommandBufferRing;
 import io.homo.superresolution.srapi.SRUpscaleContext;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
@@ -98,9 +114,10 @@ public abstract class SRApiAlgorithm extends AbstractAlgorithm {
             inFlight = inFlightFrames[currentFrameIndex];
             upscaleFinishSemaphore = inFlight.upscaleVkFinish;
             glFinishSemaphore = inFlight.glFinish;
-            if (inFlight.commandBuffer != null) {
-                inFlight.commandBuffer.waitForFence();
-            }
+            // commandBufferRing的acquire会帮我们waitForFence
+            //if (inFlight.commandBuffer != null) {
+            //    inFlight.commandBuffer.waitForFence();
+            //}
             processInputResources(inFlight, dispatchResource);
             glFinishSemaphore.signalOpenGL(
                     new int[]{Math.toIntExact(inFlight.inputColorGlTexture.handle()),
@@ -311,25 +328,13 @@ public abstract class SRApiAlgorithm extends AbstractAlgorithm {
     }
 
     private void processInputResources(InFlightFrameResourcesSet inFlight, DispatchResource dispatchResource) {
-        InteropResourcesConverter.flipY(
-                dispatchResource.resources().colorTexture(),
-                inFlight.inputColorGlTexture);
-        InteropResourcesConverter.flipY(
-                dispatchResource.resources().depthTexture(),
-                inFlight.inputDepthGlTexture);
-        if (dispatchResource.resources().motionVectorsTexture() != null) {
-            InteropResourcesConverter.flipMotionVectorY(
-                    dispatchResource.resources().motionVectorsTexture(),
-                    inFlight.inputMotionVectorsGlTexture);
-        }
-        if (dispatchResource.resources().exposureTexture() != null) {
-            GlTextureCopier.copy(
-                    CopyOperation.create()
-                            .src(dispatchResource.resources().exposureTexture())
-                            .dst(inFlight.inputExposureGlTexture)
-                            .fromTo(CopyOperation.TextureChannel.R, CopyOperation.TextureChannel.R)
-            );
-        }
+
+        InteropResourcesConverter.processInputTextures(
+                dispatchResource.resources().colorTexture(), inFlight.inputColorGlTexture,
+                dispatchResource.resources().depthTexture(), inFlight.inputDepthGlTexture,
+                dispatchResource.resources().motionVectorsTexture(), inFlight.inputMotionVectorsGlTexture,
+                dispatchResource.resources().exposureTexture(), inFlight.inputExposureGlTexture
+        );
     }
 
     public record FrameData(

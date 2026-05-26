@@ -1,6 +1,6 @@
 /*
  * Super Resolution
- * Copyright (c) 2025. 187J3X1-114514
+ * Copyright (c) 2025-2026. 187J3X1-114514
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ import net.irisshaders.iris.pipeline.CompositeRenderer;
 
 public class IrisRenderingPipelineHandler {
     public static void onCompositePassStart(
-            CompositeRenderer compositeRenderer,
+            ICompositeRendererAccessor compositeRenderer,
             NamedCompositePass compositePass,
             IrisCompositePassType passType
     ) {
@@ -32,7 +32,7 @@ public class IrisRenderingPipelineHandler {
                 new IrisCompositePassRenderingEvent.PassBegin(
                         compositeRenderer,
                         IrisCompositeRenderingPhase.from(
-                                ((CompositeRendererAccessor) compositeRenderer).getPipeline(),
+                                compositeRenderer.getPipeline(),
                                 compositeRenderer
                         ),
                         compositePass.superresolution$getName(),
@@ -43,7 +43,7 @@ public class IrisRenderingPipelineHandler {
     }
 
     public static void onCompositePassEnd(
-            CompositeRenderer compositeRenderer,
+            ICompositeRendererAccessor compositeRenderer,
             NamedCompositePass compositePass,
             IrisCompositePassType passType
     ) {
@@ -51,7 +51,7 @@ public class IrisRenderingPipelineHandler {
                 new IrisCompositePassRenderingEvent.PassEnd(
                         compositeRenderer,
                         IrisCompositeRenderingPhase.from(
-                                ((CompositeRendererAccessor) compositeRenderer).getPipeline(),
+                                compositeRenderer.getPipeline(),
                                 compositeRenderer
                         ),
                         compositePass.superresolution$getName(),
@@ -63,7 +63,7 @@ public class IrisRenderingPipelineHandler {
 
 
     public static void onCompositePassDispatchBefore(
-            CompositeRenderer compositeRenderer,
+            ICompositeRendererAccessor compositeRenderer,
             NamedCompositePass compositePass,
             IrisCompositePassType passType
     ) {
@@ -71,7 +71,7 @@ public class IrisRenderingPipelineHandler {
                 new IrisCompositePassRenderingEvent.BeforePassRender(
                         compositeRenderer,
                         IrisCompositeRenderingPhase.from(
-                                ((CompositeRendererAccessor) compositeRenderer).getPipeline(),
+                                compositeRenderer.getPipeline(),
                                 compositeRenderer
                         ),
                         compositePass.superresolution$getName(),
@@ -82,7 +82,7 @@ public class IrisRenderingPipelineHandler {
     }
 
     public static void onCompositePassDispatchAfter(
-            CompositeRenderer compositeRenderer,
+            ICompositeRendererAccessor compositeRenderer,
             NamedCompositePass compositePass,
             IrisCompositePassType passType
     ) {
@@ -90,7 +90,7 @@ public class IrisRenderingPipelineHandler {
                 new IrisCompositePassRenderingEvent.AfterPassRender(
                         compositeRenderer,
                         IrisCompositeRenderingPhase.from(
-                                ((CompositeRendererAccessor) compositeRenderer).getPipeline(),
+                                compositeRenderer.getPipeline(),
                                 compositeRenderer
                         ),
                         compositePass.superresolution$getName(),

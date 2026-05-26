@@ -21,22 +21,22 @@ package io.homo.superresolution.core.graphics.impl.buffer;
 import io.homo.superresolution.core.graphics.impl.GpuObject;
 import io.homo.superresolution.core.impl.Destroyable;
 
+import java.nio.ByteBuffer;
+
 
 public interface IBuffer extends GpuObject, Destroyable {
-    /**
-     * 获取数据
-     */
-    IBufferData data();
 
-    /**
-     * 上传数据
-     */
-    void upload();
 
     long getSize();
 
-    BufferUsage getUsage();
+    BufferUsages getUsages();
 
-    void setBufferData(IBufferData bufferData);
+    ByteBuffer map(int offsetInBytes, int lengthInBytes, boolean write);
+
+    default ByteBuffer map(boolean write) {
+        return map(0, Math.toIntExact(getSize()), write);
+    }
+
+    void unmap();
 
 }

@@ -98,16 +98,15 @@ public class FSR1 extends AbstractAlgorithm {
         fsr1UBO = RenderSystems.current().device().createBuffer(
                 BufferDescription.create()
                         .size(fsr1UBOData.size())
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .build());
         #else
         fsr1UBO = RenderSystems.vulkan().device().createBuffer(
                 BufferDescription.create()
                         .size(fsr1UBOData.size())
-                        .usage(BufferUsage.Ubo)
+                        .usages(BufferUsages.create().ubo().transferDst())
                         .build());
         #endif
-        fsr1UBO.setBufferData(fsr1UBOData);
         initShader();
         #if !(IS_VULKAN == 1)
         fsr1TempTexture = RenderSystems.current().device().createTexture(
@@ -225,7 +224,6 @@ public class FSR1 extends AbstractAlgorithm {
                 RenderHandlerManager.getScreenHeight());
         fsr1UBOData.setFloat("sharpness", SuperResolutionConfig.getSharpness());
         fsr1UBOData.fillBuffer();
-        fsr1UBO.upload();
 
         Vector3i workGroupSize = getWorkGroupSize();
 
@@ -244,10 +242,11 @@ public class FSR1 extends AbstractAlgorithm {
 
         ICommandBuffer commandBuffer = RenderSystems.current().device().defaultCommandPool().createCommandBuffer();
         commandBuffer.begin();
-        RenderSystems.current().device().commandDecoder().bindPipeline(commandBuffer, fsr1EASUPipeline);
-        RenderSystems.current().device().commandDecoder().dispatch(commandBuffer, workGroupSize.x, workGroupSize.y, workGroupSize.z);
-        RenderSystems.current().device().commandDecoder().bindPipeline(commandBuffer, fsr1RCASPipeline);
-        RenderSystems.current().device().commandDecoder().dispatch(commandBuffer, workGroupSize.x, workGroupSize.y, workGroupSize.z);
+        commandBuffer.writeToBuffer(fsr1UBO,0, fsr1UBOData);
+        commandBuffer.bindPipeline(fsr1EASUPipeline);
+        commandBuffer.dispatch(workGroupSize.x, workGroupSize.y, workGroupSize.z);
+        commandBuffer.bindPipeline(fsr1RCASPipeline);
+        commandBuffer.dispatch(workGroupSize.x, workGroupSize.y, workGroupSize.z);
         commandBuffer.end();
         RenderSystems.current().device().submitCommandBuffer(commandBuffer);
         #else

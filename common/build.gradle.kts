@@ -92,11 +92,12 @@ fun DependencyHandler.modCompileOnlyCompat(notation: Any) =
 
 
 dependencies {
-    compileOnly("org.spongepowered:mixin:0.8.5")
+    compileOnly("org.spongepowered:mixin:0.8.7")
     compileOnly("io.github.spair:imgui-java-app:1.87.5")
     compileOnly("io.github.spair:imgui-java-binding:1.87.5")
     compileOnly("io.github.spair:imgui-java-lwjgl3:1.87.5")
     compileOnly("org.lwjgl:lwjgl-vulkan:${versionConfig.common.lwjglVersion}")
+    compileOnly("org.lwjgl:lwjgl-vma:${versionConfig.common.lwjglVersion}")
 
     compileOnly("com.electronwill.night-config:toml:3.6.0")
     compileOnly("com.electronwill.night-config:core:3.6.0")
@@ -140,7 +141,7 @@ dependencies {
                 )
             } else {
                 modCompileOnlyCompat(
-                    "maven.modrinth:${dep.name}:${dep.version}-forge,${dep.minecraftVersion ?: versionConfig.common.minecraftVersion}"
+                    "maven.modrinth:${dep.name}:${dep.version}-${irisPlatform},${dep.minecraftVersion ?: versionConfig.common.minecraftVersion}"
                 )
             }
         }
@@ -214,4 +215,13 @@ artifacts {
     add("commonResources", mainSourceSet.resources.sourceDirectories.singleFile)
     add("commonResources", irisapiSourceSet.resources.sourceDirectories.singleFile)
     add("commonResources", sharedSourceSet.resources.sourceDirectories.singleFile)
+}
+
+
+tasks.named<ProcessResources>("processResources") {
+    if (gradle.extensions.extraProperties.properties["isUseDebugLib"] as? Boolean == true){
+        exclude("**/libSuperResolution*+*+release.*")
+    } else {
+        exclude("**/libSuperResolution*+*+debug.*")
+    }
 }
